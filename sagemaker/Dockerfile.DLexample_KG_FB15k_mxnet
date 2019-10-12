@@ -1,0 +1,4 @@
+FROM dgl-gpu-dlc:mxnet-1.5
+
+COPY code/kg /kg/
+COPY train-mxnet /usr/local/bin/train

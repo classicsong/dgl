@@ -1,0 +1,42 @@
+# CI docker GPU env
+FROM nvidia/cuda:10.0-cudnn7-devel
+
+# Base scripts
+RUN apt-get update --fix-missing
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+COPY install/ubuntu_install_core.sh /install/ubuntu_install_core.sh
+RUN bash /install/ubuntu_install_core.sh
+
+COPY install/ubuntu_install_build.sh /install/ubuntu_install_build.sh
+RUN bash /install/ubuntu_install_build.sh
+
+# ANTLR deps
+#COPY install/ubuntu_install_java.sh /install/ubuntu_install_java.sh
+#RUN bash /install/ubuntu_install_java.sh
+
+#COPY install/ubuntu_install_antlr.sh /install/ubuntu_install_antlr.sh
+#RUN bash /install/ubuntu_install_antlr.sh
+
+# python
+COPY install/ubuntu_install_python.sh /install/ubuntu_install_python.sh
+RUN bash /install/ubuntu_install_python.sh
+
+COPY install/ubuntu_install_python_package.sh /install/ubuntu_install_python_package.sh
+RUN bash /install/ubuntu_install_python_package.sh
+
+COPY install/ubuntu_install_mxnet_1.5.1.sh /install/ubuntu_install_mxnet_1.5.1.sh
+RUN bash /install/ubuntu_install_mxnet_1.5.1.sh
+
+# DGL
+COPY install/ubintu_install_dgl_gpu.sh /install/ubintu_install_dgl_gpu.sh
+RUN bash /install/ubintu_install_dgl_gpu.sh
+
+# Environment variables
+ENV PATH=/usr/local/nvidia/bin:${PATH}
+ENV PATH=/usr/local/cuda/bin:${PATH}
+ENV CPLUS_INCLUDE_PATH=/usr/local/cuda/include:${CPLUS_INCLUDE_PATH}
+ENV C_INCLUDE_PATH=/usr/local/cuda/include:${C_INCLUDE_PATH}
+ENV LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib64:${LIBRARY_PATH}
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib64:${LD_LIBRARY_PATH}
