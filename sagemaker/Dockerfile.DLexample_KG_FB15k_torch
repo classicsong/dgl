@@ -1,4 +1,3 @@
 FROM dgl-gpu-dlc:torch-1.2.0
 
-COPY code/kg /kg/
 COPY train-pytorch /usr/local/bin/train
