@@ -113,6 +113,9 @@ def evaluate(args, net, dataset, segment='valid'):
     rmse = np.sqrt(rmse)
     return rmse
 
+def batch_data(data_list):
+    return data_list[0]
+
 def train(args):
     print(args)
     dataset = MovieLens(args.data_name, args.ctx, use_one_hot_fea=args.use_one_hot_fea, symm=args.gcn_agg_norm_symm,
@@ -169,16 +172,16 @@ def train(args):
         num_workers=8,
         prefetch=True).__iter__()
 
-    print("Start training ...")
-    dur = []
-    for iter_idx in range(1, args.train_max_iter):
-        if iter_idx > 3:
-            t0 = time.time()
+    class TrainDatasetWrapper(object):
+        def __init__(self, edges, batch_size, edge_cnt, max_iter):
+            self._edges = edges
+            self._batch_size = batch_size
+            self._cnt_per_epoch = edge_cnt / batch_size
+            self._len = self._cnt_per_epoch * max_iter
 
-        seed = mx.nd.arange(dataset.train_npairs * 2, dtype='int64')
-        edges = mx.nd.shuffle(seed)
-        for sample_idx in range(0, dataset.train_npairs//args.minibatch_size):
-            edge_ids = edges[sample_idx * args.minibatch_size: (sample_idx + 1) * args.minibatch_size]
+        def __getitem__(self, i):
+            i = i % self._cnt_per_epoch
+            edge_ids = self._edges[i * self._batch_size: (i + 1) * self._batch_size]
             head_ids, tail_ids = homo_enc_graph.find_edges(edge_ids)
 
             s_edge_type = enc_edge_type_map[edge_ids]
@@ -244,7 +247,7 @@ def train(args):
                     true_relation_ids.append(mx.nd.full(idx-start, rev_i))
 
             head_subgraph = enc_graph.edge_subgraph(head_subgraphs)
-            tail_subgraph = enc_graph.edge_subgraph(tail_subgraphs)
+            tail_subgraph,  = enc_graph.edge_subgraph(tail_subgraphs)
             true_head_ids = mx.nd.concat(*true_head_ids, dim=0)
             true_tail_ids = mx.nd.concat(*true_tail_ids, dim=0)
             true_relation_ids = mx.nd.concat(*true_relation_ids, dim=0) / 2
@@ -256,8 +259,38 @@ def train(args):
             g_user_fea[head_NID] = mx.nd.arange(head_NID.shape[0], dtype='int32')
             g_movie_fea[tail_NID] = mx.nd.arange(tail_NID.shape[0], dtype='int32')
 
-            true_head_idx = g_user_fea[true_head_ids].as_in_context(args.ctx)
-            true_tail_idx = g_movie_fea[true_tail_ids].as_in_context(args.ctx)
+            true_head_idx = g_user_fea[true_head_ids]
+            true_tail_idx = g_movie_fea[true_tail_ids]
+
+            return head_subgraph, tail_subgraph, true_head_idx, true_tail_idx
+
+        def __len__(self):
+            return self._len
+
+    def batch_data(data_list):
+        return data_list[0]
+
+    print("Start training ...")
+    dur = []
+    for iter_idx in range(1, args.train_max_iter):
+        if iter_idx > 3:
+            t0 = time.time()
+
+        seed = mx.nd.arange(dataset.train_npairs * 2, dtype='int64')
+        edges = mx.nd.shuffle(seed)
+        train_dataset = TrainDatasetWrapper(edges, args.minibatch_size, dataset.train_npairs * 2, args.train_max_iter)
+        sampler_loader = mx.gluon.data.DataLoader(train_dataset,
+                                              batch_size=1,
+                                              num_workers=8,
+                                              shuffle=True,
+                                              batchify_fn=batch_data,
+                                              prefetch=16,
+                                              thread_pool=True)
+
+        for step, sample in enumerate(sampler_loader):
+            head_subgraph, tail_subgraph, true_head_idx, true_tail_idx = sample
+            true_head_idx = true_head_idx.as_in_context(args.ctx)
+            true_tail_idx = true_tail_idx.as_in_context(args.ctx)
 
             # minibatch sample here
             with mx.autograd.record():
@@ -272,11 +305,14 @@ def train(args):
                              nd_possible_rating_values.reshape((1, -1))).sum(axis=1)
             rmse = mx.nd.square(real_pred_ratings - true_relation_ratings).mean().asscalar()
             rmse = np.sqrt(rmse)
-            if sample_idx % 100 == 0:
-                train_loss_logger.log(iter=iter_idx, idx=sample_idx,
+            if step % 100 == 0:
+                train_loss_logger.log(iter=iter_idx, idx=step,
                                   loss=loss, rmse=rmse)
                 print("Iter={}, sample_idx={}, gnorm={:.3f}, loss={:.4f}, rmse={:.4f}".format(iter_idx,
-                    sample_idx, gnorm, loss, rmse))
+                    step, gnorm, loss, rmse))
+
+            if step > (dataset.train_npairs * 2) / args.minibatch_size:
+                break
 
         if iter_idx > 3:
             dur.append(time.time() - t0)
