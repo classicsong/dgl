@@ -17,7 +17,6 @@ import torch as th
 import torch.nn as nn
 import torch.nn.functional as functional
 import torch.nn.init as INIT
-import line_profiler
 
 from .. import *
 
@@ -61,7 +60,6 @@ class ExternalEmbedding:
             self.trace.append((idx, data))
         return data
 
-    @profile
     def update(self, gpu_id=-1):
         self.state_step += 1
         with th.no_grad():

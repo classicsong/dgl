@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import dgl.backend as F
-import line_profiler
 
 backend = os.environ.get('DGLBACKEND')
 if backend.lower() == 'mxnet':
@@ -91,7 +90,6 @@ class KEModel(object):
         self.score_func(g)
         return g.edata['score']
 
-    @profile
     def predict_neg_score(self, pos_g, neg_g, to_device=None, gpu_id=-1, trace=False):
         num_chunks = neg_g.num_chunks
         chunk_size = neg_g.chunk_size
