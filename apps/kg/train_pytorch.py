@@ -143,7 +143,7 @@ def test(args, model, test_samplers, gpu_id=-1, mode='Test'):
     test_samplers[0] = test_samplers[0].reset()
     test_samplers[1] = test_samplers[1].reset()
 
-def multi_gpu_test(args, model, graph_name, edges, rank, mode='Test'):
+def multi_gpu_test(args, model, graph_name, edges, rank, queue=None, mode='Test'):
     if args.num_proc > 1:
         th.set_num_threads(1)
     gpu_id = args.gpu[rank % len(args.gpu)] if args.mix_cpu_gpu and args.num_proc > 1 else args.gpu[0]
@@ -172,9 +172,11 @@ def multi_gpu_test(args, model, graph_name, edges, rank, mode='Test'):
         if len(logs) > 0:
             for metric in logs[0].keys():
                 metrics[metric] = sum([log[metric] for log in logs]) / len(logs)
-
-        for k, v in metrics.items():
-            print('{} average {} at [{}/{}]: {}'.format(mode, k, args.step, args.max_step, v))
+        if queue:
+            queue.put(metrics)
+        if args.num_proc == 1:
+            for k, v in metrics.items():
+                print('{} average {} at [{}/{}]: {}'.format(mode, k, args.step, args.max_step, v))
     print('test:', time.time() - start)
     test_samplers[0] = test_samplers[0].reset()
     test_samplers[1] = test_samplers[1].reset()
@@ -243,11 +245,22 @@ def run(args, logger):
     if args.test:
         if args.num_proc > 1:
             procs = []
+            queue = mp.Queue(args.num_proc)
             for i in range(args.num_proc):
-                proc = mp.Process(target=multi_gpu_test, args=(args, model, 'Test', test_edges, i))
+                proc = mp.Process(target=multi_gpu_test, args=(args, model, 'Test', test_edges, i, queue))
                 procs.append(proc)
                 proc.start()
             for proc in procs:
                 proc.join()
+            total_metrics = {}
+            for i in range(args.num_proc):
+                metrics = queue.get()
+                for k, v in metrics.items():
+                    if i == 0:
+                        total_metrics[k] = v / args.num_proc
+                    else:
+                        total_metrics[k] += v / args.num_proc
+            for k, v in metrics.items():
+                print('{} average {} at [{}/{}]: {}'.format('Test', k, args.step, args.max_step, v))
         else:
             multi_gpu_test(args, model, 'Test', test_edges, 0)

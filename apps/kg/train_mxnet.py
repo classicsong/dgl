@@ -68,7 +68,7 @@ def train(args, model, train_sampler, valid_samplers=None):
     # clear cache
     logs = []
 
-def test(args, model, test_samplers, mode='Test'):
+def test(args, model, test_samplers, queue=None, mode='Test'):
     logs = []
 
     for sampler in test_samplers:
@@ -81,9 +81,11 @@ def test(args, model, test_samplers, mode='Test'):
     if len(logs) > 0:
         for metric in logs[0].keys():
             metrics[metric] = sum([log[metric] for log in logs]) / len(logs)
-
-    for k, v in metrics.items():
-        print('{} average {} at [{}/{}]: {}'.format(mode, k, args.step, args.max_step, v))
+    if queue:
+        queue.put(metrics)
+    if args.num_proc == 1 or mode == 'Valid':
+        for k, v in metrics.items():
+            print('{} average {} at [{}/{}]: {}'.format(mode, k, args.step, args.max_step, v))
     for i in range(len(test_samplers)):
         test_samplers[i] = test_samplers[i].reset()
 
@@ -227,11 +229,22 @@ def run(args, logger):
     if args.test:
         if args.num_proc > 1:
             procs = []
+            queue = mp.Queue(args.num_proc)
             for i in range(args.num_proc):
-                proc = mp.Process(target=test, args=(args, model, [test_sampler_heads[i], test_sampler_tails[i]]))
+                proc = mp.Process(target=test, args=(args, model, [test_sampler_heads[i], test_sampler_tails[i]], queue))
                 procs.append(proc)
                 proc.start()
             for proc in procs:
                 proc.join()
+            total_metrics = {}
+            for i in range(args.num_proc):
+                metrics = queue.get()
+                for k, v in metrics.items():
+                    if i == 0:
+                        total_metrics[k] = v / args.num_proc
+                    else:
+                        total_metrics[k] += v / args.num_proc
+            for k, v in metrics.items():
+                print('{} average {} at [{}/{}]: {}'.format('Test', k, args.step, args.max_step, v))
         else:
             test(args, model, [test_sampler_head, test_sampler_tail])
