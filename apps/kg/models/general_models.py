@@ -21,6 +21,7 @@ else:
     from .pytorch.tensor_models import cuda
     from .pytorch.tensor_models import ExternalEmbedding
     from .pytorch.score_fun import *
+    import torch as th
 
 class KEModel(object):
     def __init__(self, args, model_name, n_entities, n_relations, hidden_dim, gamma,
@@ -44,7 +45,8 @@ class KEModel(object):
             rel_dim = relation_dim * entity_dim
         else:
             rel_dim = relation_dim
-        self.relation_emb = ExternalEmbedding(args, n_relations, rel_dim, F.cpu() if args.mix_cpu_gpu else device)
+        if not rel_part:
+            self.relation_emb = ExternalEmbedding(args, n_relations, rel_dim, F.cpu() if args.mix_cpu_gpu else device)
 
         if model_name == 'TransE':
             self.score_func = TransEScore(gamma)
@@ -69,7 +71,8 @@ class KEModel(object):
     def share_memory(self):
         # TODO(zhengda) we should make it work for parameters in score func
         self.entity_emb.share_memory()
-        self.relation_emb.share_memory()
+        if not self.args.rel_part:
+            self.relation_emb.share_memory()
 
     def save_emb(self, path, dataset):
         self.entity_emb.save(path, dataset+'_'+self.model_name+'_entity')
@@ -123,7 +126,7 @@ class KEModel(object):
 
     def forward_test(self, pos_g, neg_g, logs, gpu_id=-1):
         pos_g.ndata['emb'] = self.entity_emb(pos_g.ndata['id'], gpu_id, False)
-        pos_g.edata['emb'] = self.relation_emb(pos_g.edata['id'], gpu_id, False)
+        pos_g.edata['emb'] = self.relation_emb(pos_g.edata['id'], -1, False)
 
         self.score_func.prepare(pos_g, gpu_id, False)
 
@@ -158,7 +161,7 @@ class KEModel(object):
     # @profile
     def forward(self, pos_g, neg_g, gpu_id=-1):
         pos_g.ndata['emb'] = self.entity_emb(pos_g.ndata['id'], gpu_id, True)
-        pos_g.edata['emb'] = self.relation_emb(pos_g.edata['id'], gpu_id, True)
+        pos_g.edata['emb'] = self.relation_emb(pos_g.edata['id'], -1, True)
 
         self.score_func.prepare(pos_g, gpu_id, True)
 
@@ -197,7 +200,7 @@ class KEModel(object):
         #TODO: only reg ent&rel embeddings. other params to be added.
         if self.args.regularization_coef > 0.0 and self.args.regularization_norm > 0:
             coef, nm = self.args.regularization_coef, self.args.regularization_norm
-            reg = coef * (norm(self.entity_emb.curr_emb(), nm) + norm(self.relation_emb.curr_emb(), nm))
+            reg = coef * (norm(self.entity_emb.curr_emb(), nm) + norm(self.relation_emb.curr_emb(), nm).to(th.device('cpu')))
             log['regularization'] = get_scalar(reg)
             loss = loss + reg
 
@@ -205,5 +208,9 @@ class KEModel(object):
 
     def update(self, gpu_id=-1):
         self.entity_emb.update(gpu_id)
-        self.relation_emb.update(gpu_id)
+        self.relation_emb.update(-1)
         self.score_func.update(gpu_id)
+
+    def prepare_relation(self, gpu_id=-1):
+        device = th.device('cuda:' + str(gpu_id))
+        self.relation_emb = ExternalEmbedding(args, n_relations, rel_dim, F.cpu() if gpu_id == -1 else device)

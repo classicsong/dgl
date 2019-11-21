@@ -46,6 +46,8 @@ def multi_gpu_train(args, model, graph, n_entities, edges, rank):
     if args.num_proc > 1:
         th.set_num_threads(1)
     gpu_id = args.gpu[rank % len(args.gpu)] if args.mix_cpu_gpu and args.num_proc > 1 else args.gpu[0]
+    if args.rel_part:
+        model.prepare_relation(gpu_id)
     train_sampler_head = create_train_sampler(graph, args.batch_size, args.neg_sample_size,
                                                        mode='PBG-head',
                                                        num_workers=args.num_worker,
