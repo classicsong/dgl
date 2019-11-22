@@ -29,6 +29,7 @@ class KEModel(object):
         super(KEModel, self).__init__()
         self.args = args
         self.n_entities = n_entities
+        self.n_relations = n_relations
         self.model_name = model_name
         self.hidden_dim = hidden_dim
         self.eps = 2.0
@@ -45,7 +46,8 @@ class KEModel(object):
             rel_dim = relation_dim * entity_dim
         else:
             rel_dim = relation_dim
-        if not rel_part:
+        self.rel_dim = rel_dim
+        if not args.rel_part:
             self.relation_emb = ExternalEmbedding(args, n_relations, rel_dim, F.cpu() if args.mix_cpu_gpu else device)
 
         if model_name == 'TransE':
@@ -65,8 +67,9 @@ class KEModel(object):
         self.tail_neg_score = self.score_func.create_neg(False)
         self.head_neg_prepare = self.score_func.create_neg_prepare(True)
         self.tail_neg_prepare = self.score_func.create_neg_prepare(False)
-
-        self.reset_parameters()
+        
+        if not args.rel_part:
+            self.reset_parameters()
 
     def share_memory(self):
         # TODO(zhengda) we should make it work for parameters in score func
@@ -213,4 +216,4 @@ class KEModel(object):
 
     def prepare_relation(self, gpu_id=-1):
         device = th.device('cuda:' + str(gpu_id))
-        self.relation_emb = ExternalEmbedding(args, n_relations, rel_dim, F.cpu() if gpu_id == -1 else device)
+        self.relation_emb = ExternalEmbedding(self.args, self.n_relations, self.rel_dim, F.cpu() if gpu_id == -1 else device)

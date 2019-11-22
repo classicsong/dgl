@@ -48,6 +48,7 @@ def multi_gpu_train(args, model, graph, n_entities, edges, rank):
     gpu_id = args.gpu[rank % len(args.gpu)] if args.mix_cpu_gpu and args.num_proc > 1 else args.gpu[0]
     if args.rel_part:
         model.prepare_relation(gpu_id)
+        model.reset_parameters()
     train_sampler_head = create_train_sampler(graph, args.batch_size, args.neg_sample_size,
                                                        mode='PBG-head',
                                                        num_workers=args.num_worker,
@@ -90,11 +91,11 @@ def multi_gpu_train(args, model, graph, n_entities, edges, rank):
         forward_time += time.time() - start1
 
         start1 = time.time()
-        loss.backward()
+        #loss.backward()
         backward_time += time.time() - start1
 
         start1 = time.time()
-        model.update(gpu_id)
+        #model.update(gpu_id)
         update_time += time.time() - start1
         logs.append(log)
 
