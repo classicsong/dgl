@@ -93,6 +93,7 @@ class ExternalEmbedding:
 
     def curr_emb(self):
         data = [data for _, data in self.trace]
+        #self.trace = []
         return th.cat(data, 0)
 
     def save(self, path, name):

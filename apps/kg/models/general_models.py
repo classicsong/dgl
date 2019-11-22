@@ -203,7 +203,7 @@ class KEModel(object):
         #TODO: only reg ent&rel embeddings. other params to be added.
         if self.args.regularization_coef > 0.0 and self.args.regularization_norm > 0:
             coef, nm = self.args.regularization_coef, self.args.regularization_norm
-            reg = coef * (norm(self.entity_emb.curr_emb(), nm) + norm(self.relation_emb.curr_emb(), nm).to(th.device('cpu')))
+            reg = coef * (norm(self.entity_emb.curr_emb(), nm) + norm(self.relation_emb.curr_emb(), nm))#.to(th.device('cpu')))
             log['regularization'] = get_scalar(reg)
             loss = loss + reg
 

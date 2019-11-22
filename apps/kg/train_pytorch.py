@@ -91,11 +91,11 @@ def multi_gpu_train(args, model, graph, n_entities, edges, rank):
         forward_time += time.time() - start1
 
         start1 = time.time()
-        #loss.backward()
+        loss.backward()
         backward_time += time.time() - start1
 
         start1 = time.time()
-        #model.update(gpu_id)
+        model.update(gpu_id)
         update_time += time.time() - start1
         logs.append(log)
 
