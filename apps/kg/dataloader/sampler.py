@@ -9,7 +9,7 @@ import time
 
 # This partitions a list of edges based on relations to make sure
 # each partition has roughly the same number of edges and relations.
-def RelationPartition(edges, n):
+def RelationPartition(edges, n, rel_dict=None):
     print('relation partition {} edges into {} parts'.format(len(edges), n))
     rel = np.array([r for h, r, t in edges])
     uniq, cnts = np.unique(rel, return_counts=True)
@@ -19,16 +19,17 @@ def RelationPartition(edges, n):
     assert cnts[0] > cnts[-1]
     edge_cnts = np.zeros(shape=(n,), dtype=np.int64)
     rel_cnts = np.zeros(shape=(n,), dtype=np.int64)
-    rel_dict = {}
-    for i in range(len(cnts)):
-        cnt = cnts[i]
-        r = uniq[i]
-        idx = np.argmin(edge_cnts)
-        rel_dict[r] = idx
-        edge_cnts[idx] += cnt
-        rel_cnts[idx] += 1
-    for i, edge_cnt in enumerate(edge_cnts):
-        print('part {} has {} edges and {} relations'.format(i, edge_cnt, rel_cnts[i]))
+    if not rel_dict:
+        rel_dict = {}
+        for i in range(len(cnts)):
+            cnt = cnts[i]
+            r = uniq[i]
+            idx = np.argmin(edge_cnts)
+            rel_dict[r] = idx
+            edge_cnts[idx] += cnt
+            rel_cnts[idx] += 1
+        for i, edge_cnt in enumerate(edge_cnts):
+            print('part {} has {} edges and {} relations'.format(i, edge_cnt, rel_cnts[i]))
     parts = []
     for _ in range(n):
         parts.append([])
@@ -70,9 +71,11 @@ def ConstructGraph(edges, n_entities, i, args):
 class TrainDataset(object):
     def __init__(self, dataset, args, weighting=False, ranks=64):
         triples = dataset.train
+        self.rel_dict = None
         print('|Train|:', len(triples))
         if ranks > 1 and args.rel_part:
-            triples_list = RelationPartition(triples, ranks)
+            triples_list, rel_dict = RelationPartition(triples, ranks)
+            self.rel_dict = rel_dict
         elif ranks > 1:
             triples_list = RandomPartition(triples, ranks)
         else:
@@ -286,7 +289,7 @@ class EvalDataset(object):
         np.testing.assert_equal(F.asnumpy(etype), orig_etype)
 
     def create_sampler(self, eval_type, batch_size, neg_sample_size, mode='head',
-                       num_workers=5, rank=0, ranks=1):
+                       num_workers=5, rank=0, ranks=1, rel_dict=None):
         edges = self.get_edges(eval_type)
         beg = edges.shape[0] * rank // ranks
         end = min(edges.shape[0] * (rank + 1) // ranks, edges.shape[0])
@@ -295,10 +298,13 @@ class EvalDataset(object):
         return EvalSampler(self.g, edges, batch_size, neg_sample_size, mode, num_workers)
 
 def create_test_sampler(graph, edges, batch_size, neg_sample_size, mode='head',
-                       num_workers=5, rank=0, ranks=1):
-        beg = edges.shape[0] * rank // ranks
-        end = min(edges.shape[0] * (rank + 1) // ranks, edges.shape[0])
-        edges = edges[beg: end]
+                       num_workers=5, rank=0, ranks=1, rel_dict=None):
+        if not rel_dict:
+            beg = edges.shape[0] * rank // ranks
+            end = min(edges.shape[0] * (rank + 1) // ranks, edges.shape[0])
+            edges = edges[beg: end]
+        else:
+            edges = RelationPartition(edges, ranks, rel_dict)[rank]
         print("eval on {} edges".format(len(edges)))
         return EvalSampler(graph, edges, batch_size, neg_sample_size, mode, num_workers)
 

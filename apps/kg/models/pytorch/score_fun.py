@@ -67,6 +67,10 @@ class TransRScore(nn.Module):
         self.relation_dim = relation_dim
         self.entity_dim = entity_dim
 
+    def init_prepare(self, n_relations, gpu_id=-1):
+        device = th.device('cuda:' + str(gpu_id))
+        self.projection_emb = ExternalEmbedding(args, n_relations, self.entity_dim * self.relation_dim, device)
+
     def edge_func(self, edges):
         head = edges.data['head_emb']
         tail = edges.data['tail_emb']
@@ -76,7 +80,7 @@ class TransRScore(nn.Module):
 
     def prepare(self, g, gpu_id, trace=False):
         head_ids, tail_ids = g.all_edges(order='eid')
-        projection = self.projection_emb(g.edata['id'], gpu_id, trace)
+        projection = self.projection_emb(g.edata['id'], -1, trace)
         projection = projection.reshape(-1, self.entity_dim, self.relation_dim)
         g.edata['head_emb'] = th.einsum('ab,abc->ac', g.ndata['emb'][head_ids], projection)
         g.edata['tail_emb'] = th.einsum('ab,abc->ac', g.ndata['emb'][tail_ids], projection)

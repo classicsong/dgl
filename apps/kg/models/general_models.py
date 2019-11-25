@@ -34,6 +34,7 @@ class KEModel(object):
         self.hidden_dim = hidden_dim
         self.eps = 2.0
         self.emb_init = (gamma + self.eps) / hidden_dim
+        self.init_prepare = False
 
         entity_dim = 2 * hidden_dim if double_entity_emb else hidden_dim
         relation_dim = 2 * hidden_dim if double_relation_emb else hidden_dim
@@ -53,8 +54,7 @@ class KEModel(object):
         if model_name == 'TransE':
             self.score_func = TransEScore(gamma)
         elif model_name == 'TransR':
-            projection_emb = ExternalEmbedding(args, n_relations, entity_dim * relation_dim,
-                                               F.cpu() if args.mix_cpu_gpu else device)
+            self.init_prepare = True
             self.score_func = TransRScore(gamma, projection_emb, relation_dim, entity_dim)
         elif model_name == 'DistMult':
             self.score_func = DistMultScore()
@@ -212,8 +212,10 @@ class KEModel(object):
     def update(self, gpu_id=-1):
         self.entity_emb.update(gpu_id)
         self.relation_emb.update(-1)
-        self.score_func.update(gpu_id)
+        self.score_func.update(-1)
 
     def prepare_relation(self, gpu_id=-1):
         device = th.device('cuda:' + str(gpu_id))
         self.relation_emb = ExternalEmbedding(self.args, self.n_relations, self.rel_dim, F.cpu() if gpu_id == -1 else device)
+        if self.init_prepare:
+            self.score_func.init_prepare(self.n_relations, gpu_id)
