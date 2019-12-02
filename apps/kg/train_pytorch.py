@@ -42,9 +42,9 @@ def load_model_from_checkpoint(logger, args, n_entities, n_relations, ckpt_path)
     model.load_emb(ckpt_path, args.dataset)
     return model
 
-def multi_gpu_train(args, model, graph, n_entities, edges, rank, rel_dict):
+def multi_gpu_train(args, model, graph, n_entities, triples, edges, rank, rel_dict):
     if args.num_proc > 1:
-        th.set_num_threads(1)
+        th.set_num_threads(4)
     gpu_id = args.gpu[rank % len(args.gpu)] if args.mix_cpu_gpu and args.num_proc > 1 else args.gpu[0]
     if args.rel_part:
         model.prepare_relation(gpu_id)
@@ -63,12 +63,12 @@ def multi_gpu_train(args, model, graph, n_entities, edges, rank, rel_dict):
                                                         True, n_entities)
     if args.valid:
         g = dgl.contrib.graph_store.create_graph_from_store('Test', store_type="shared_mem")
-        valid_sampler_head = create_test_sampler(g, edges, args.batch_size_eval,
+        valid_sampler_head = create_test_sampler(g, triples, edges, args.batch_size_eval,
                                                             args.neg_sample_size_test,
                                                             mode='PBG-head',
                                                             num_workers=args.num_worker,
                                                             rank=rank, ranks=args.num_proc,rel_dict=rel_dict)
-        valid_sampler_tail = create_test_sampler(g, edges, args.batch_size_eval,
+        valid_sampler_tail = create_test_sampler(g, triples, edges, args.batch_size_eval,
                                                             args.neg_sample_size_test,
                                                             mode='PBG-tail',
                                                             num_workers=args.num_worker,
@@ -146,17 +146,17 @@ def test(args, model, test_samplers, gpu_id=-1, mode='Test'):
     test_samplers[0] = test_samplers[0].reset()
     test_samplers[1] = test_samplers[1].reset()
 
-def multi_gpu_test(args, model, graph_name, edges, rank, queue=None, rel_dict=None, mode='Test'):
+def multi_gpu_test(args, model, graph_name, triples, edges, rank, queue=None, rel_dict=None, mode='Test'):
     if args.num_proc > 1:
         th.set_num_threads(1)
     gpu_id = args.gpu[rank % len(args.gpu)] if args.mix_cpu_gpu and args.num_proc > 1 else args.gpu[0]
     graph = dgl.contrib.graph_store.create_graph_from_store(graph_name, store_type="shared_mem")
-    test_sampler_head = create_test_sampler(graph, edges, args.batch_size_eval,
+    test_sampler_head = create_test_sampler(graph, triples, edges, args.batch_size_eval,
                                                             args.neg_sample_size_test,
                                                             mode='PBG-head',
                                                             num_workers=args.num_worker,
                                                             rank=rank, ranks=args.num_proc, rel_dict=rel_dict)
-    test_sampler_tail = create_test_sampler(graph, edges, args.batch_size_eval,
+    test_sampler_tail = create_test_sampler(graph, triples, edges, args.batch_size_eval,
                                                             args.neg_sample_size_test,
                                                             mode='PBG-tail',
                                                             num_workers=args.num_worker,
@@ -213,6 +213,8 @@ def run(args, logger):
         valid_edges = eval_dataset.get_edges('valid')
     else:
         valid_edges = None
+    if args.valid or args.test:
+        triples = eval_dataset.triples
 
     eval_dataset = None
     dataset = None
@@ -230,7 +232,7 @@ def run(args, logger):
         procs = []
         for i in range(args.num_proc):
             g = train_data.graphs[i]
-            proc = mp.Process(target=multi_gpu_train, args=(args, model, g, n_entities, valid_edges, i, rel_dict))
+            proc = mp.Process(target=multi_gpu_train, args=(args, model, g, n_entities, triples, test_edges, i, rel_dict))
             procs.append(proc)
             proc.start()
         for proc in procs:
@@ -251,7 +253,7 @@ def run(args, logger):
             procs = []
             queue = mp.Queue(args.num_proc)
             for i in range(args.num_proc):
-                proc = mp.Process(target=multi_gpu_test, args=(args, model, 'Test', test_edges, i, queue, rel_dict))
+                proc = mp.Process(target=multi_gpu_test, args=(args, model, 'Test', triples, test_edges, i, queue, rel_dict))
                 procs.append(proc)
                 proc.start()
             for proc in procs:

@@ -60,14 +60,14 @@ class TransEScore(nn.Module):
             return fn
 
 class TransRScore(nn.Module):
-    def __init__(self, gamma, projection_emb, relation_dim, entity_dim):
+    def __init__(self, gamma, relation_dim, entity_dim):
         super(TransRScore, self).__init__()
         self.gamma = gamma
-        self.projection_emb = projection_emb
+        #self.projection_emb = projection_emb
         self.relation_dim = relation_dim
         self.entity_dim = entity_dim
 
-    def init_prepare(self, n_relations, gpu_id=-1):
+    def init_prepare(self, args, n_relations, gpu_id=-1):
         device = th.device('cuda:' + str(gpu_id))
         self.projection_emb = ExternalEmbedding(args, n_relations, self.entity_dim * self.relation_dim, device)
 

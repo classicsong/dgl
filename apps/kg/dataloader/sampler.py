@@ -36,7 +36,7 @@ def RelationPartition(edges, n, rel_dict=None):
     for h, r, t in edges:
         idx = rel_dict[r]
         parts[idx].append((h, r, t))
-    return parts
+    return parts, rel_dict
 
 def RandomPartition(edges, n):
     print('random partition {} edges into {} parts'.format(len(edges), n))
@@ -218,6 +218,7 @@ class EvalSampler(object):
 class EvalDataset(object):
     def __init__(self, dataset, args):
         triples = dataset.train + dataset.valid + dataset.test
+        self.triples = triples
         pickle_name = 'graph_all.pickle'
         if args.pickle_graph and os.path.exists(os.path.join(args.data_path, args.dataset, pickle_name)):
             with open(os.path.join(args.data_path, args.dataset, pickle_name), 'rb') as graph_file:
@@ -297,16 +298,20 @@ class EvalDataset(object):
         print("eval on {} edges".format(len(edges)))
         return EvalSampler(self.g, edges, batch_size, neg_sample_size, mode, num_workers)
 
-def create_test_sampler(graph, edges, batch_size, neg_sample_size, mode='head',
+def create_test_sampler(graph, triples, edges, batch_size, neg_sample_size, mode='head',
                        num_workers=5, rank=0, ranks=1, rel_dict=None):
         if not rel_dict:
             beg = edges.shape[0] * rank // ranks
             end = min(edges.shape[0] * (rank + 1) // ranks, edges.shape[0])
             edges = edges[beg: end]
         else:
-            edges = RelationPartition(edges, ranks, rel_dict)[rank]
-        print("eval on {} edges".format(len(edges)))
-        return EvalSampler(graph, edges, batch_size, neg_sample_size, mode, num_workers)
+            seed_edges = []
+            for e in edges:
+                h, r, t = triples[e]
+                if rel_dict[r] == rank:
+                    seed_edges.append(e)
+        print("eval on {} edges".format(len(seed_edges)))
+        return EvalSampler(graph, seed_edges, batch_size, neg_sample_size, mode, num_workers)
 
 class NewBidirectionalOneShotIterator:
     def __init__(self, dataloader_head, dataloader_tail, is_pbg, num_nodes):
