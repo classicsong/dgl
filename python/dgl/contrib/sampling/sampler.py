@@ -538,7 +538,7 @@ class EdgeSampler(object):
 
     To contorl how many samples the sampler can return, a reset parameter can be used.
     If it is set to true, the sampler will generate samples infinitely. For the sampler 
-    with replacement, it will reshuffle the seed edges each time it consumes all the 
+    without replacement, it will reshuffle the seed edges each time it consumes all the 
     edges and reset the replacement state. If it is set to false, the sampler will only 
     generate num_edges/batch_size samples.
 
