@@ -50,6 +50,11 @@ class KEModel(object):
         self.rel_dim = rel_dim
         if not args.rel_part:
             self.relation_emb = ExternalEmbedding(args, n_relations, rel_dim, F.cpu() if args.mix_cpu_gpu else device)
+        else:
+            self.relation_embs = [None] * args.num_proc
+            for i in range(args.num_proc):
+                relation_emb = ExternalEmbedding(args, n_relations, rel_dim, F.cpu())
+                self.relation_embs[i] = relation_emb
 
         if model_name == 'TransE':
             self.score_func = TransEScore(gamma)
@@ -129,7 +134,7 @@ class KEModel(object):
 
     def forward_test(self, pos_g, neg_g, logs, gpu_id=-1):
         pos_g.ndata['emb'] = self.entity_emb(pos_g.ndata['id'], gpu_id, False)
-        pos_g.edata['emb'] = self.relation_emb(pos_g.edata['id'], -1, False)
+        pos_g.edata['emb'] = self.relation_emb(pos_g.edata['id'], gpu_id, False)
 
         self.score_func.prepare(pos_g, gpu_id, False)
 
@@ -164,7 +169,7 @@ class KEModel(object):
     # @profile
     def forward(self, pos_g, neg_g, gpu_id=-1):
         pos_g.ndata['emb'] = self.entity_emb(pos_g.ndata['id'], gpu_id, True)
-        pos_g.edata['emb'] = self.relation_emb(pos_g.edata['id'], -1, True)
+        pos_g.edata['emb'] = self.relation_emb(pos_g.edata['id'], gpu_id, True)
 
         self.score_func.prepare(pos_g, gpu_id, True)
 
@@ -211,8 +216,8 @@ class KEModel(object):
 
     def update(self, gpu_id=-1):
         self.entity_emb.update(gpu_id)
-        self.relation_emb.update(-1)
-        self.score_func.update(-1)
+        self.relation_emb.update(gpu_id)
+        self.score_func.update(gpu_id)
 
     def prepare_relation(self, gpu_id=-1):
         device = th.device('cuda:' + str(gpu_id))

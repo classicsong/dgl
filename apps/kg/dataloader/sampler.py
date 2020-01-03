@@ -303,7 +303,7 @@ def create_test_sampler(graph, triples, edges, batch_size, neg_sample_size, mode
         if not rel_dict:
             beg = edges.shape[0] * rank // ranks
             end = min(edges.shape[0] * (rank + 1) // ranks, edges.shape[0])
-            edges = edges[beg: end]
+            seed_edges = edges[beg: end]
         else:
             seed_edges = []
             for e in edges:

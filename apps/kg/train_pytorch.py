@@ -42,9 +42,19 @@ def load_model_from_checkpoint(logger, args, n_entities, n_relations, ckpt_path)
     model.load_emb(ckpt_path, args.dataset)
     return model
 
-def multi_gpu_train(args, model, graph, n_entities, triples, edges, rank, rel_dict):
+def multi_gpu_train(args, 
+                    model, 
+                    graph, 
+                    n_entities, 
+                    triples, 
+                    edges, 
+                    test_edges, 
+                    rank,
+                    queue,
+                    time_queue,
+                    rel_dict):
     if args.num_proc > 1:
-        th.set_num_threads(4)
+        th.set_num_threads(1)
     gpu_id = args.gpu[rank % len(args.gpu)] if args.mix_cpu_gpu and args.num_proc > 1 else args.gpu[0]
     if args.rel_part:
         model.prepare_relation(gpu_id)
@@ -74,6 +84,21 @@ def multi_gpu_train(args, model, graph, n_entities, triples, edges, rank, rel_di
                                                             num_workers=args.num_worker,
                                                             rank=rank, ranks=args.num_proc, rel_dict=rel_dict)
         valid_samplers = [valid_sampler_head, valid_sampler_tail]
+
+    if args.test:
+        print(test_edges)
+        graph = dgl.contrib.graph_store.create_graph_from_store('Test', store_type="shared_mem")
+        test_sampler_head = create_test_sampler(graph, triples, test_edges, args.batch_size_eval,
+                                                                args.neg_sample_size_test,
+                                                                mode='PBG-head',
+                                                                num_workers=args.num_worker,
+                                                                rank=rank, ranks=args.num_proc, rel_dict=rel_dict)
+        test_sampler_tail = create_test_sampler(graph, triples, test_edges, args.batch_size_eval,
+                                                                args.neg_sample_size_test,
+                                                                mode='PBG-tail',
+                                                                num_workers=args.num_worker,
+                                                                rank=rank, ranks=args.num_proc, rel_dict=rel_dict)
+        test_samplers = [test_sampler_head, test_sampler_tail]
     logs = []
     for arg in vars(args):
         logging.info('{:20}:{}'.format(arg, getattr(args, arg)))
@@ -120,6 +145,30 @@ def multi_gpu_train(args, model, graph, n_entities, triples, edges, rank, rel_di
             print('test:', time.time() - start)
     if args.valid:
         g.destroy()
+
+    time_queue.put(time.time())
+
+    if args.test:
+        with th.no_grad():
+            logs = []
+            for sampler in test_samplers:
+                count = 0
+                for pos_g, neg_g in sampler:
+                    with th.no_grad():
+                        model.forward_test(pos_g, neg_g, logs, gpu_id)
+
+            metrics = {}
+            if len(logs) > 0:
+                for metric in logs[0].keys():
+                    metrics[metric] = sum([log[metric] for log in logs]) / len(logs)
+            if queue:
+                queue.put(metrics)
+
+            for k, v in metrics.items():
+                print('{} average {} at [{}/{}]: {}'.format('Test', k, args.step, args.max_step, v))
+        test_samplers[0] = test_samplers[0].reset()
+        test_samplers[1] = test_samplers[1].reset()
+        graph.destroy()
 
 def test(args, model, test_samplers, gpu_id=-1, mode='Test'):
     if args.num_proc > 1:
@@ -215,6 +264,8 @@ def run(args, logger):
         valid_edges = None
     if args.valid or args.test:
         triples = eval_dataset.triples
+    print(len(test_edges))
+    print(test_edges)
 
     eval_dataset = None
     dataset = None
@@ -227,25 +278,56 @@ def run(args, logger):
 
     # train
     start = time.time()
-    
     if args.num_proc > 1:
         procs = []
+        queue = mp.Queue(args.num_proc)
+        time_queue = mp.Queue(args.num_proc)
         for i in range(args.num_proc):
             g = train_data.graphs[i]
-            proc = mp.Process(target=multi_gpu_train, args=(args, model, g, n_entities, triples, test_edges, i, rel_dict))
+            proc = mp.Process(target=multi_gpu_train, args=(args, 
+                                                            model, 
+                                                            g, 
+                                                            n_entities, 
+                                                            triples, 
+                                                            valid_edges,
+                                                            test_edges,
+                                                            i, 
+                                                            queue,
+                                                            time_queue,
+                                                            rel_dict))
             procs.append(proc)
             proc.start()
         for proc in procs:
             proc.join()
+        latest = start
+        for i in range(args.num_proc):
+            end_time = time_queue.get()
+            if end_time > latest:
+                latest = end_time
+        print('training takes {} seconds'.format(latest - start))
+        if args.test:
+            total_metrics = {}
+            for i in range(args.num_proc):
+                metrics = queue.get()
+                for k, v in metrics.items():
+                    if i == 0:
+                        total_metrics[k] = v / args.num_proc
+                    else:
+                        total_metrics[k] += v / args.num_proc
+            for k, v in total_metrics.items():
+                print('{} average {} at [{}/{}]: {}'.format('Final Test', k, args.step, args.max_step, v))
     else:
         g = train_data.graphs[0]
         multi_gpu_train(args, model, g, n_entities, valid_edges, 0)
-    print('training takes {} seconds'.format(time.time() - start))
-    
+        print('training takes {} seconds'.format(time.time() - start))
+        if args.test:
+            multi_gpu_test(args, model, 'Test', test_edges, 0)
+
     if args.save_emb is not None:
         if not os.path.exists(args.save_emb):
             os.mkdir(args.save_emb)
         model.save_emb(args.save_emb, args.dataset)
+    return
 
     # test
     if args.test:
