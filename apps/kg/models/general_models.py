@@ -56,18 +56,21 @@ class KEModel(object):
                 relation_emb = ExternalEmbedding(args, n_relations, rel_dim, F.cpu())
                 self.relation_embs[i] = relation_emb
 
-        if model_name == 'TransE':
-            self.score_func = TransEScore(gamma)
-        elif model_name == 'TransR':
-            self.init_prepare = True
-            self.score_func = TransRScore(gamma, relation_dim, entity_dim)
+        if model_name == 'TransE' or model_name == 'TransE_l2':
+            self.score_func = TransEScore(gamma, 'l2')
+        elif model_name == 'TransE_l1':
+            self.score_func = TransEScore(gamma, 'l1')
         elif model_name == 'DistMult':
             self.score_func = DistMultScore()
         elif model_name == 'ComplEx':
             self.score_func = ComplExScore()
         elif model_name == 'RESCAL':
             self.score_func = RESCALScore(relation_dim, entity_dim)
-            
+        elif model_name == 'RotatE':
+            self.score_func = RotatEScore(gamma, self.emb_init)
+        elif model_name == 'TransR':
+            self.init_prepare = True
+            self.score_func = TransRScore(gamma, relation_dim, entity_dim)
         self.head_neg_score = self.score_func.create_neg(True)
         self.tail_neg_score = self.score_func.create_neg(False)
         self.head_neg_prepare = self.score_func.create_neg_prepare(True)
