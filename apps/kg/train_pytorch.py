@@ -7,6 +7,8 @@ from torch.utils.data import DataLoader
 import torch.optim as optim
 import torch as th
 import torch.multiprocessing as mp
+from torch.multiprocessing import Queue
+from _thread import start_new_thread
 
 import dgl
 import dgl.backend as F
@@ -19,6 +21,30 @@ if TH_VERSION.version[0] == 1 and TH_VERSION.version[1] < 2:
 import os
 import logging
 import time
+from functools import wraps
+
+
+def thread_wrapped_func(func):
+    @wraps(func)
+    def decorated_function(*args, **kwargs):
+        queue = Queue()
+        def _queue_result():
+            exception, trace, res = None, None, None
+            try:
+                res = func(*args, **kwargs)
+            except Exception as e:
+                exception = e
+                trace = traceback.format_exc()
+            queue.put((res, exception, trace))
+
+        start_new_thread(_queue_result, ())
+        result, exception, trace = queue.get()
+        if exception is None:
+            return result
+        else:
+            assert isinstance(exception, Exception)
+            raise exception.__class__(trace)
+    return decorated_function
 
 def run_server(num_worker, graph, etype_id):
     g = dgl.contrib.graph_store.create_graph_store_server(graph, "Test", "shared_mem",
@@ -42,6 +68,7 @@ def load_model_from_checkpoint(logger, args, n_entities, n_relations, ckpt_path)
     model.load_emb(ckpt_path, args.dataset)
     return model
 
+@thread_wrapped_func
 def multi_gpu_train(args, 
                     model, 
                     graph, 
@@ -54,7 +81,7 @@ def multi_gpu_train(args,
                     time_queue,
                     rel_dict):
     if args.num_proc > 1:
-        th.set_num_threads(1)
+        th.set_num_threads(8)
     gpu_id = args.gpu[rank % len(args.gpu)] if args.mix_cpu_gpu and args.num_proc > 1 else args.gpu[0]
     if args.rel_part:
         model.prepare_relation(gpu_id)
