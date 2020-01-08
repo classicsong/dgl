@@ -76,7 +76,7 @@ struct BackwardBinaryReduce {
   }
 
   static __device__ __forceinline__ void ApplyEdgeReduce(
-      Idx src, Idx dst, Idx eid, Idx feat_idx, DType *outval, BackwardGData<Idx, DType>* gdata) {
+      Idx src, Idx dst, Idx eid, Idx tx, DType *outval, BackwardGData<Idx, DType>* gdata) {
     const int64_t D = gdata->x_length;
     const int64_t len = gdata->data_len;
     Idx lid = Functors::SelectLeft(src, eid, dst);
@@ -96,7 +96,7 @@ struct BackwardBinaryReduce {
     DType* outoff = gdata->out_data + oid * D;
     DType* gradoutoff = gdata->grad_out_data + oid * D;
 
-    Idx tx = feat_idx/len;
+    Idx feat_idx = tx * len;
     DType out = Functors::Read(outoff + tx);
     DType grad_out = Functors::Read(gradoutoff + tx);
     DType e = Functors::Op(lhsoff + feat_idx, rhsoff + feat_idx, len);
@@ -104,18 +104,27 @@ struct BackwardBinaryReduce {
 
     DType* lhs_base = lhsoff + tx * len;
     DType* rhs_base = rhsoff + tx * len;
-    int64_t i = feat_idx%len;
     if (Mode == binary_op::kGradLhs) {
-      DType grad_lhs = grad_e * Functors::BackwardOpLhs(lhs_base, rhs_base, i, e);
-      *outval += grad_lhs;
+      for (int64_t i = 0; i < len; ++i) {
+        DType grad_lhs = grad_e * Functors::BackwardOpLhs(lhs_base, rhs_base, i, e);
+        DType *gradlhs_addr = outval + i;
+        *gradlhs_addr = *gradlhs_addr + grad_lhs;
+      }
     } else if (Mode == binary_op::kGradRhs) {
-      DType grad_rhs = grad_e * Functors::BackwardOpRhs(lhs_base, rhs_base, i, e);
-      *outval += grad_rhs;
+      for (int64_t i = 0; i < len; ++i) {
+        DType grad_rhs = grad_e * Functors::BackwardOpRhs(lhs_base, rhs_base, i, e);
+        DType *gradrhs_addr = outval + i;
+        *gradrhs_addr = *gradrhs_addr + grad_rhs;
+      }
     }
   }
 
   static __device__ __forceinline__ Idx GetFeatSize(BackwardGData<Idx, DType> *gdata) {
-    return gdata->x_length * gdata->data_len;
+    return gdata->x_length;
+  }
+
+  static __device__ __forceinline__ Idx GetStepLen(BackwardGData<Idx, DType> *gdata) {
+    return gdata->data_len;
   }
 
   static __device__ __forceinline__ DType * GetOutBuf(BackwardGData<Idx, DType> *gdata) {
@@ -205,7 +214,7 @@ struct BackwardBinaryReduceBcast {
   }
 
   static __device__ __forceinline__ void ApplyEdgeReduce(
-      Idx src, Idx dst, Idx eid, Idx feat_idx, DType *outval, BackwardBcastGData<NDim, Idx, DType>* gdata) {
+      Idx src, Idx dst, Idx eid, Idx tx, DType *outval, BackwardBcastGData<NDim, Idx, DType>* gdata) {
     const int64_t len = gdata->data_len;
     Idx lid = Functors::SelectLeft(src, eid, dst);
     Idx rid = Functors::SelectRight(src, eid, dst);
@@ -226,7 +235,6 @@ struct BackwardBinaryReduceBcast {
   
     int64_t lhs_add = 0;
     int64_t rhs_add = 0;
-    Idx tx = feat_idx/len;
     UnravelRavel(tx, gdata->ndim, gdata->out_shape, gdata->out_stride,
         gdata->lhs_shape, gdata->lhs_stride,
         gdata->rhs_shape, gdata->rhs_stride, &lhs_add, &rhs_add);
@@ -237,18 +245,27 @@ struct BackwardBinaryReduceBcast {
 
     DType* lhs_base = lhsoff + lhs_add * len;
     DType* rhs_base = rhsoff + rhs_add * len;
-    int64_t i = feat_idx%len;
     if (Mode == binary_op::kGradLhs) {
-      DType grad_lhs = grad_e * Functors::BackwardOpLhs(lhs_base, rhs_base, i, e);
-      *outval += grad_lhs;
+      for (int64_t i = 0; i < len; ++i) {
+        DType grad_lhs = grad_e * Functors::BackwardOpLhs(lhs_base, rhs_base, i, e);
+        DType *gradlhs_addr = outval + i;
+        *gradlhs_addr = *gradlhs_addr + grad_lhs;
+      }
     } else if (Mode == binary_op::kGradRhs) {
-      DType grad_rhs = grad_e * Functors::BackwardOpRhs(lhs_base, rhs_base, i, e);
-      *outval += grad_rhs;
+      for (int64_t i = 0; i < len; ++i) {
+        DType grad_rhs = grad_e * Functors::BackwardOpRhs(lhs_base, rhs_base, i, e);
+        DType *gradrhs_addr = outval + i;
+        *gradrhs_addr = *gradrhs_addr + grad_rhs;
+      }
     }
   }
 
   static __device__ __forceinline__ Idx GetFeatSize(BackwardBcastGData<NDim, Idx, DType> *gdata) {
-    return gdata->out_len * gdata->data_len;
+    return gdata->out_len;
+  }
+
+  static __device__ __forceinline__ Idx GetStepLen(BackwardBcastGData<NDim, Idx, DType>  *gdata) {
+    return gdata->data_len;
   }
 
   static __device__ __forceinline__ DType * GetOutBuf(BackwardBcastGData<NDim, Idx, DType> *gdata) {

@@ -77,6 +77,10 @@ struct BinaryReduce {
     return gdata->x_length;
   }
 
+  static __device__ __forceinline__ Idx GetStepLen(GData<Idx, DType> *gdata) {
+    return 1;
+  }
+
   static __device__ __forceinline__ DType * GetOutBuf(GData<Idx, DType> *gdata) {
     return gdata->out_data;
   }
@@ -205,6 +209,10 @@ struct BinaryReduceBcast {
 
   static __device__ __forceinline__ Idx GetFeatSize(BcastGData<NDim, Idx, DType> *gdata) {
     return gdata->out_len;
+  }
+
+  static __device__ __forceinline__ Idx GetStepLen(BcastGData<NDim, Idx, DType> *gdata) {
+    return 1;
   }
 
   static __device__ __forceinline__ DType * GetOutBuf(BcastGData<NDim, Idx, DType> *gdata) {
