@@ -162,6 +162,9 @@ template <DLDeviceType XPU, typename IdType>
 CSRMatrix COOToCSR(COOMatrix coo);
 
 template <DLDeviceType XPU, typename IdType>
+CSRMatrix COOToCSR_MKL(COOMatrix coo);
+
+template <DLDeviceType XPU, typename IdType>
 COOMatrix COOSliceRows(COOMatrix coo, int64_t start, int64_t end);
 
 template <DLDeviceType XPU, typename IdType>

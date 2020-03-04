@@ -9,6 +9,11 @@
 #include <unordered_map>
 #include "array_utils.h"
 
+#ifdef DGL_USE_MKL
+#define MKL_INT int64_t
+#include <mkl.h>
+#endif
+
 namespace dgl {
 
 using runtime::NDArray;
@@ -225,6 +230,47 @@ template COOMatrix COOTranspose<kDLCPU, int32_t>(COOMatrix coo);
 template COOMatrix COOTranspose<kDLCPU, int64_t>(COOMatrix coo);
 
 ///////////////////////////// COOToCSR /////////////////////////////
+
+#ifdef DGL_USE_MKL
+// complexity: time O(NNZ), space O(1)
+template <DLDeviceType XPU, typename IdType>
+CSRMatrix COOToCSR_MKL(COOMatrix coo) {
+  const int64_t N = coo.num_rows;
+  const int64_t NNZ = coo.row->shape[0];
+  const IdType* row_data = static_cast<IdType*>(coo.row->data);
+  const IdType* col_data = static_cast<IdType*>(coo.col->data);
+  const IdType* data = COOHasData(coo)? static_cast<IdType*>(coo.data->data) : nullptr;
+  NDArray ret_indptr = NDArray::Empty({N + 1}, coo.row->dtype, coo.row->ctx);
+  NDArray ret_indices = NDArray::Empty({NNZ}, coo.row->dtype, coo.row->ctx);
+  NDArray ret_data = NDArray::Empty({NNZ}, coo.row->dtype, coo.row->ctx);
+
+  IdType* Bp = static_cast<IdType*>(ret_indptr->data);
+  IdType* Bi = static_cast<IdType*>(ret_indices->data);
+  IdType* Bx = static_cast<IdType*>(ret_data->data);
+
+
+  MKL_INT job[6] = {1,//if job(1)=1, the matrix in the coordinate format is converted to the CRS format.
+                     0,//If job(2)=0, zero-based indexing for the matrix in CRS format is used;
+                     0,//If job(3)=0, zero-based indexing for the matrix in coordinate format is used;
+                     0,
+                     NNZ,//job(5)=nnz - sets number of the non-zero elements of the matrix A if job(1)=1.
+                     0 //If job(6)=0, all arrays acsr, ja, ia are filled in for the output storage.
+                     };
+  // Init crs
+  MKL_INT info;
+  int64_t n = N;
+  int64_t nnz = NNZ;
+  IdType *acoo = (IdType *)data;
+  IdType *rowind = (IdType *)row_data;
+  IdType *colind = (IdType *)col_data;
+  mkl_dcsrcoo(job , &n,
+              (double *)Bp , Bi , Bp , &nnz ,
+              (double *)acoo, rowind , colind , &info);
+  CHECK_NE(info, 0);
+}
+
+template CSRMatrix COOToCSR_MKL<kDLCPU, int64_t>(COOMatrix coo);
+#endif
 
 // complexity: time O(NNZ), space O(1)
 template <DLDeviceType XPU, typename IdType>

@@ -36,6 +36,11 @@ if(USE_CUDA)
   include(cmake/modules/CUDA.cmake)
 endif(USE_CUDA)
 
+if(USE_MKL)
+  include(cmake/util/FindMKL.cmake)
+  include(cmake/modules/mkl.cmake)
+endif(USE_MKL)
+
 # include directories
 include_directories("include")
 include_directories("third_party/dlpack/include")
@@ -118,6 +123,10 @@ if(USE_CUDA)
 else(USE_CUDA)
   add_library(dgl SHARED ${DGL_SRC})
 endif(USE_CUDA)
+
+if(USE_MKL)
+  dgl_config_mkl()
+endif(USE_MKL)
 
 # For serialization
 add_subdirectory("third_party/dmlc-core")
