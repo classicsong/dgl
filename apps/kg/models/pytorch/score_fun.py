@@ -39,6 +39,10 @@ class TransEScore(nn.Module):
         score = head + rel - tail
         return {'score': self.gamma - th.norm(score, p=self.dist_ord, dim=-1)}
 
+    def infer(self, head, rel, tail):
+        score = head + rel -tail
+        return self.gamma - th.norm(score, p=self.dist_ord, dim=-1)
+
     def prepare(self, g, gpu_id, trace=False):
         pass
 

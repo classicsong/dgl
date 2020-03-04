@@ -171,6 +171,14 @@ class KEModel(object):
         else:
             self.global_relation_emb.init(self.emb_init)
 
+    def infer(self, head, rel, tail, gpu_id):
+        head_emb = self.entity_emb(head, gpu_id, False)
+        tail_emb = self.entity_emb(tail, gpu_id, False)
+        rel_emb = self.relation_emb(rel, gpu_id, False)
+
+        score = self.score_func.infer(head_emb, rel_emb, tail_emb)
+        return logsigmoid(score)
+
     def predict_score(self, g):
         """Predict the positive score.
 
@@ -321,7 +329,8 @@ class KEModel(object):
                 'MR': float(ranking),
                 'HITS@1': 1.0 if ranking <= 1 else 0.0,
                 'HITS@3': 1.0 if ranking <= 3 else 0.0,
-                'HITS@10': 1.0 if ranking <= 10 else 0.0
+                'HITS@10': 1.0 if ranking <= 10 else 0.0,
+                'HITS@50': 1.0 if ranking <= 50 else 0.0
             })
 
     # @profile

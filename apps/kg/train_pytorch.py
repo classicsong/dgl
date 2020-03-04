@@ -137,6 +137,26 @@ def test(args, model, test_samplers, rank=0, mode='Test', queue=None):
     test_samplers[0] = test_samplers[0].reset()
     test_samplers[1] = test_samplers[1].reset()
 
+def infer(args, model, triples, mode):
+    if len(args.gpu) > 0:
+        gpu_id = args.gpu[rank % len(args.gpu)] if args.mix_cpu_gpu and args.num_proc > 1 else args.gpu[0]
+    else:
+        gpu_id = -1
+
+    with th.no_grad():
+        heads, rels, tails = triples
+        result = []
+        for rel in rels:
+            if mode == 'topk_head':
+                tails_score = []
+                for tail in tails:
+                    scores = model.infer(heads, rel, tail, gpu_id)
+                    tails_score.append(scores)
+            else:
+                assert False
+            result.append(tails_score)
+    return result
+
 @thread_wrapped_func
 def train_mp(args, model, train_sampler, valid_samplers=None, rank=0, rel_parts=None, cross_rels=None, barrier=None):
     if args.num_proc > 1:
