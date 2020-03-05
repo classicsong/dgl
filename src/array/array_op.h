@@ -161,7 +161,7 @@ COOMatrix COOTranspose(COOMatrix coo);
 template <DLDeviceType XPU, typename IdType>
 CSRMatrix COOToCSR(COOMatrix coo);
 
-template <DLDeviceType XPU, typename IdType>
+template <DLDeviceType XPU>
 CSRMatrix COOToCSR_MKL(COOMatrix coo);
 
 template <DLDeviceType XPU, typename IdType>

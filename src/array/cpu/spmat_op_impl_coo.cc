@@ -10,7 +10,6 @@
 #include "array_utils.h"
 
 #ifdef DGL_USE_MKL
-#define MKL_INT int64_t
 #include <mkl.h>
 #endif
 
@@ -233,43 +232,77 @@ template COOMatrix COOTranspose<kDLCPU, int64_t>(COOMatrix coo);
 
 #ifdef DGL_USE_MKL
 // complexity: time O(NNZ), space O(1)
-template <DLDeviceType XPU, typename IdType>
+template <DLDeviceType XPU>
 CSRMatrix COOToCSR_MKL(COOMatrix coo) {
+  coo = COOSort(coo, true);
   const int64_t N = coo.num_rows;
   const int64_t NNZ = coo.row->shape[0];
-  const IdType* row_data = static_cast<IdType*>(coo.row->data);
-  const IdType* col_data = static_cast<IdType*>(coo.col->data);
-  const IdType* data = COOHasData(coo)? static_cast<IdType*>(coo.data->data) : nullptr;
+  const int32_t* row_data = static_cast<int32_t*>(coo.row->data);
+  const int32_t* col_data = static_cast<int32_t*>(coo.col->data);
+  const int32_t* data = COOHasData(coo)? static_cast<int32_t*>(coo.data->data) : nullptr;
+  CHECK_NE(coo.row->dtype.bits, 32);
   NDArray ret_indptr = NDArray::Empty({N + 1}, coo.row->dtype, coo.row->ctx);
   NDArray ret_indices = NDArray::Empty({NNZ}, coo.row->dtype, coo.row->ctx);
   NDArray ret_data = NDArray::Empty({NNZ}, coo.row->dtype, coo.row->ctx);
 
-  IdType* Bp = static_cast<IdType*>(ret_indptr->data);
-  IdType* Bi = static_cast<IdType*>(ret_indices->data);
-  IdType* Bx = static_cast<IdType*>(ret_data->data);
+  int32_t* Bp = static_cast<int32_t*>(ret_indptr->data);
+  int32_t* Bi = static_cast<int32_t*>(ret_indices->data);
+  int32_t* Bx = static_cast<int32_t*>(ret_data->data);
+  std::fill(Bp, Bp + N, 0);
 
+  if (data == nullptr) {
+    for (int64_t i = 0; i < NNZ; ++i) {
+      Bp[row_data[i]]++;
+    }
 
-  MKL_INT job[6] = {1,//if job(1)=1, the matrix in the coordinate format is converted to the CRS format.
-                     0,//If job(2)=0, zero-based indexing for the matrix in CRS format is used;
-                     0,//If job(3)=0, zero-based indexing for the matrix in coordinate format is used;
-                     0,
-                     NNZ,//job(5)=nnz - sets number of the non-zero elements of the matrix A if job(1)=1.
-                     0 //If job(6)=0, all arrays acsr, ja, ia are filled in for the output storage.
-                     };
-  // Init crs
-  MKL_INT info;
-  int64_t n = N;
-  int64_t nnz = NNZ;
-  IdType *acoo = (IdType *)data;
-  IdType *rowind = (IdType *)row_data;
-  IdType *colind = (IdType *)col_data;
-  mkl_dcsrcoo(job , &n,
-              (double *)Bp , Bi , Bp , &nnz ,
-              (double *)acoo, rowind , colind , &info);
-  CHECK_NE(info, 0);
+    // cumsum
+    for (int64_t i = 0, cumsum = 0; i < N; ++i) {
+      const int32_t temp = Bp[i];
+      Bp[i] = cumsum;
+      cumsum += temp;
+    }
+    Bp[N] = NNZ;
+
+    for (int64_t i = 0; i < NNZ; ++i) {
+      const int32_t r = row_data[i];
+      Bi[Bp[r]] = col_data[i];
+      Bx[Bp[r]] = data? data[i] : i;
+      Bp[r]++;
+    }
+
+    // correct the indptr
+    for (int64_t i = 0, last = 0; i <= N; ++i) {
+      int32_t temp = Bp[i];
+      Bp[i] = last;
+      last = temp;
+    }
+  } else {
+    MKL_INT job[6] = {1,//if job(1)=1, the matrix in the coordinate format is converted to the CSR format.
+                      0,//If job(2)=0, zero-based indexing for the matrix in CSR format is used;
+                      0,//If job(3)=0, zero-based indexing for the matrix in coordinate format is used;
+                      0,
+                      NNZ,//job(5)=nnz - sets number of the non-zero elements of the matrix A if job(1)=1.
+                      0 //If job(6)=0, all arrays acsr, ja, ia are filled in for the output storage.
+                      };
+    // Init crs
+    MKL_INT info;
+    int32_t n = N;
+    int32_t nnz = NNZ;
+    int32_t *acoo = (int32_t *)data;
+    int32_t *rowind = (int32_t *)row_data;
+    int32_t *colind = (int32_t *)col_data;
+    mkl_scsrcoo(job , &n,
+                (float *)Bx , Bi , Bp , &nnz ,
+                (float *)acoo, rowind , colind , &info);
+    CHECK_NE(info, 0);
+  }
+
+  return CSRMatrix(coo.num_rows, coo.num_cols,
+                   ret_indptr, ret_indices, ret_data,
+                   coo.col_sorted);
 }
 
-template CSRMatrix COOToCSR_MKL<kDLCPU, int64_t>(COOMatrix coo);
+template CSRMatrix COOToCSR_MKL<kDLCPU>(COOMatrix coo);
 #endif
 
 // complexity: time O(NNZ), space O(1)

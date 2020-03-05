@@ -540,9 +540,9 @@ COOMatrix COOTranspose(COOMatrix coo) {
 CSRMatrix COOToCSR(COOMatrix coo) {
   CSRMatrix ret;
 #ifdef DGL_USE_MKL
-  if (coo.row->dtype.bits == 64) {
+  if (coo.row->dtype.bits == 32) {
     ATEN_XPU_SWITCH(coo.row->ctx.device_type, XPU, {
-      ret = impl::COOToCSR_MKL<XPU, int64_t>(coo);
+      ret = impl::COOToCSR_MKL<XPU>(coo);
     });
 
     return ret;
