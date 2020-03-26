@@ -329,7 +329,11 @@ class KEModel(object):
                 'MR': float(ranking),
                 'HITS@1': 1.0 if ranking <= 1 else 0.0,
                 'HITS@3': 1.0 if ranking <= 3 else 0.0,
+                'HITS@5': 1.0 if ranking <= 5 else 0.0,
+                'HITS@7': 1.0 if ranking <= 7 else 0.0,
                 'HITS@10': 1.0 if ranking <= 10 else 0.0,
+                'HITS@15': 1.0 if ranking <= 15 else 0.0,
+                'HITS@20': 1.0 if ranking <= 20 else 0.0,
                 'HITS@50': 1.0 if ranking <= 50 else 0.0
             })
 

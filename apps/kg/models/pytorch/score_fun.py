@@ -413,6 +413,20 @@ class RotatEScore(nn.Module):
         score = score.norm(dim=0)
         return {'score': self.gamma - score.sum(-1)}
 
+    def infer(self, head, rel, tail):
+        re_head, im_head = th.chunk(head, 2, dim=-1)
+        re_tail, im_tail = th.chunk(tail, 2, dim=-1)
+        phase_rel = rel / (self.emb_init / np.pi)
+        re_rel, im_rel = th.cos(phase_rel), th.sin(phase_rel)
+        re_score = re_head * re_rel - im_head * im_rel
+        im_score = re_head * im_rel + im_head * re_rel
+        re_score = re_score - re_tail
+        im_score = im_score - im_tail
+        score = th.stack([re_score, im_score], dim=0)
+        score = score.norm(dim=0)
+
+        return self.gamma - score.sum(-1)
+
     def update(self, gpu_id=-1):
         pass
 

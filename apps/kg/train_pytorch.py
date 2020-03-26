@@ -129,6 +129,7 @@ def test(args, model, test_samplers, rank=0, mode='Test', queue=None):
         if len(logs) > 0:
             for metric in logs[0].keys():
                 metrics[metric] = sum([log[metric] for log in logs]) / len(logs)
+        print(metrics)
         if queue is not None:
             queue.put(logs)
         else:

@@ -34,7 +34,7 @@ def run(args):
     for i in range(num_triples):
         idx = seed[i]
         h, r, t = lines[idx].strip().split('\t')
-        if int(r) != 5:
+        if int(r) != 6:
             train_lines.append(lines[idx])
         elif idx < num_train:
             train_lines.append(lines[idx])
@@ -45,10 +45,13 @@ def run(args):
 
     with open("train.tsv", "w+") as f:
         f.writelines(train_lines)
+
     with open("valid.tsv", "w+") as f:
         f.writelines(valid_lines)
+
     with open("test.tsv", "w+") as f:
         f.writelines(test_lines)
+
 
 if __name__ == '__main__':
     args = ArgParser().parse_args()

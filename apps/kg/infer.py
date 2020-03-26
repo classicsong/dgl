@@ -117,7 +117,7 @@ def main(args):
     tail_name = []
     head = []
     tail = []
-    relation = [5]
+    relation = [22]
     with open(args.predict_head) as f:
         for line in f:
             name, h = line.strip().split('\t')
@@ -133,28 +133,42 @@ def main(args):
     head = F.tensor(np.array(head), F.int64)
     relation = F.tensor(np.array(relation), F.int64)
     tail = F.tensor(np.array(tail), F.int64)
-    
+
     scores = infer(args, model, (head, relation, tail), 'topk_head')
     top10 = []
     for idx, score in enumerate(scores[0]):
         sort, indices = th.sort(score)
-        scores = sort[-10:]
-        indices = indices[-10:]
+        scores = sort[-20:]
+        indices = indices[-20:]
         #heads = head_name[indices]
         head_r = "{}".format(head_name[indices[0]])
-        for i in range(9):
+        for i in range(19):
             head_r = "{}\t{}".format(head_r, head_name[indices[i+1]])
         score_r = "{}\t".format(scores[0])
-        for i in range(9):
+        for i in range(19):
             score_r = "{}\t{}".format(score_r, scores[i+1])
         result = "{}\t{}\t{}\n".format(tail_name[idx], head_r, score_r)
         print(result)
         top10.append(result)
+    # for idx, score in enumerate(scores[0]):
+    #     sort, indices = th.sort(score)
+    #     scores = sort[-10:]
+    #     indices = indices[-10:]
+    #     #heads = head_name[indices]
+    #     head_r = "{}".format(head_name[indices[0]])
+    #     for i in range(9):
+    #         head_r = "{}\t{}".format(head_r, head_name[indices[i+1]])
+    #     score_r = "{}\t".format(scores[0])
+    #     for i in range(9):
+    #         score_r = "{}\t{}".format(score_r, scores[i+1])
+    #     result = "{}\t{}\t{}\n".format(tail_name[idx], head_r, score_r)
+    #     print(result)
+    #     top10.append(result)
 
-    with open("topk.tsv", "w+") as f:
+
+    with open("./GNBR_split/topk3/r_new_22_to20.tsv", "w+") as f:
         f.writelines(top10)
 
 if __name__ == '__main__':
     args = ArgParser().parse_args()
     main(args)
-
