@@ -17,14 +17,15 @@ import dgl
 import dgl.function as fn
 from dgl.contrib.data import load_data
 from model import RelGraphConvLayer, RelGraphEmbed
-from utils import build_graph_from_triplets, thread_wrapped_func
+from utils import build_graph_from_triplets, thread_wrapped_func, \
+    load_drug_data, build_multi_ntype_graph_from_triplets
 
 class LinkPredict(nn.Module):
     def __init__(self,
                  g,
                  device,
                  h_dim,
-                 num_rels,
+                 all_rels,
                  num_bases=-1,
                  num_hidden_layers=1,
                  dropout=0,
@@ -34,6 +35,7 @@ class LinkPredict(nn.Module):
         self.g = g
         self.device = device
         self.h_dim = h_dim
+        num_rels = len(all_rels) if type(all_rels) is list else all_rels
 
         self.rel_names = list(set(g.etypes))
         self.rel_names.sort()
@@ -181,17 +183,22 @@ class LinkPredict(nn.Module):
         return predict_loss + self.regularization_coef * reg_loss
 
 class RGCNLinkRankSampler:
-    def __init__(self, g, num_edges, etypes, netypes, num_rels, phead_ids, ptail_ids, fanouts, 
-        nhead_ids, ntail_ids, num_neg=None, is_train=True):
+    def __init__(self, g, num_edges, etypes, netypes, all_rels, phead_ids, ptail_ids, fanouts, 
+        nhead_ids, ntail_ids, phead_type, ptail_type, nhead_type, ntail_type,
+        num_neg=None, is_train=True):
         self.g = g
         self.num_edges = num_edges
         self.etypes = etypes
         self.netypes = netypes
-        self.num_rels = num_rels
+        self.all_rels = all_rels
         self.phead_ids = phead_ids
         self.ptail_ids = ptail_ids
         self.nhead_ids = nhead_ids
         self.ntail_ids = ntail_ids
+        self.phead_type = phead_type
+        self.ptail_type = ptail_type
+        self.nhead_type = nhead_type
+        self.ntail_type = ntail_type
         self.fanouts = fanouts
         self.num_neg = num_neg
         self.is_train = is_train
@@ -211,41 +218,90 @@ class RGCNLinkRankSampler:
         ptail_ids = self.ptail_ids
         nhead_ids = self.nhead_ids
         ntail_ids = self.ntail_ids
+
+        phead_type = self.phead_type
+        ptail_type = self.ptail_type
+        nhead_type = self.nhead_type
+        ntail_type = self.ntail_type
         
         p_etypes = etypes[pseed]
         phead_ids = phead_ids[pseed]
         ptail_ids = ptail_ids[pseed]
+        phead_type = phead_type[pseed]
+        ptail_type = ptail_type[pseed]
         n_etypes = netypes[nseed]
         nhead_ids = nhead_ids[nseed]
         ntail_ids = ntail_ids[nseed]
+        nhead_type = nhead_type[nseed]
+        ntail_type = ntail_type[nseed]
 
         p_edges = {}
         p_subg = []
-        for key in range(self.num_rels):
-            pe_loc = (p_etypes == key)
-            p_head = phead_ids[pe_loc]
-            p_tail = ptail_ids[pe_loc]
-            if p_head.shape[0] == 0:
-                continue
-            canonical_etypes = ('node', str(key), 'node')
-            p_edges[canonical_etypes] = (p_head, p_tail)
-            p_subg.append(dgl.graph((p_head, p_tail),
-                                     canonical_etypes[0],
-                                     canonical_etypes[1],
-                                     g.number_of_nodes(canonical_etypes[0])))
         n_subg = []
-        for key in range(self.num_rels):
-            ne_loc = (n_etypes == key)
-            n_head = nhead_ids[ne_loc]
-            n_tail = ntail_ids[ne_loc]
-            if n_head.shape[0] == 0:
-                continue
+        if type(self.all_rels) is list:
+            for rel in self.all_rels:
+                head_type, rel_type, tail_type = rel
+                pre_loc = (phead_type == head_type) & \
+                    (p_etypes == rel_type) & \
+                    (ptail_type == tail_type)
+                p_head = phead_ids[pre_loc]
+                p_tail = ptail_ids[pre_loc]
+                canonical_etypes = (str(head_type), str(rel_type), str(tail_type))
+                if p_head.shape[0] != 0:
+                    p_edges[canonical_etypes] = (p_head, p_tail)
+                    if canonical_etypes[0] == canonical_etypes[2]:
+                        p_subg.append(dgl.graph((p_head, p_tail),
+                                                canonical_etypes[0],
+                                                canonical_etypes[1],
+                                                g.number_of_nodes(canonical_etypes[0])))
+                    else:
+                        p_subg.append(dgl.bipartite((p_head, p_tail),
+                                                    canonical_etypes[0],
+                                                    canonical_etypes[1],
+                                                    canonical_etypes[2],
+                                                    num_nodes=(g.number_of_nodes(canonical_etypes[0]),
+                                                                g.number_of_nodes(canonical_etypes[2]))))
 
-            canonical_etypes = ('node', str(key), 'node')
-            n_subg.append(dgl.graph((n_head, n_tail),
-                                     canonical_etypes[0],
-                                     canonical_etypes[1],
-                                     g.number_of_nodes(canonical_etypes[0])))
+        
+                ne_loc = (nhead_type == head_type) & \
+                    (n_etypes == rel_type) & \
+                    (ntail_type == tail_type)
+                n_head = nhead_ids[ne_loc]
+                n_tail = ntail_ids[ne_loc]
+                if n_head.shape[0] != 0:
+                    if canonical_etypes[0] == canonical_etypes[2]:
+                        n_subg.append(dgl.graph((n_head, n_tail),
+                                                canonical_etypes[0],
+                                                canonical_etypes[1],
+                                                g.number_of_nodes(canonical_etypes[0])))
+                    else:
+                        n_subg.append(dgl.bipartite((n_head, n_tail),
+                                                    canonical_etypes[0],
+                                                    canonical_etypes[1],
+                                                    canonical_etypes[2],
+                                                    num_nodes=(g.number_of_nodes(canonical_etypes[0]),
+                                                            g.number_of_nodes(canonical_etypes[2]))))
+        else:
+            for key in range(self.all_rels):
+                pe_loc = (p_etypes == key)
+                p_head = phead_ids[pe_loc]
+                p_tail = ptail_ids[pe_loc]
+                canonical_etypes = ('node', str(key), 'node')
+                if p_head.shape[0] != 0:
+                    p_edges[canonical_etypes] = (p_head, p_tail)
+                    p_subg.append(dgl.graph((p_head, p_tail),
+                                            canonical_etypes[0],
+                                            canonical_etypes[1],
+                                            g.number_of_nodes(canonical_etypes[0])))
+
+                ne_loc = (n_etypes == key)
+                n_head = nhead_ids[ne_loc]
+                n_tail = ntail_ids[ne_loc]
+                if n_head.shape[0] != 0:
+                    n_subg.append(dgl.graph((n_head, n_tail),
+                                            canonical_etypes[0],
+                                            canonical_etypes[1],
+                                            g.number_of_nodes(canonical_etypes[0])))
 
         p_g = dgl.hetero_from_relations(p_subg)
         n_g = dgl.hetero_from_relations(n_subg)
@@ -270,6 +326,7 @@ class RGCNLinkRankSampler:
             else:
                 p_frontier = dgl.sampling.sample_neighbors(g, p_cur, fanout)
                 n_frontier = dgl.sampling.sample_neighbors(g, n_cur, fanout)
+            '''
             if self.is_train and i == 0 and len(p_edges) > 0:
                 # remove edges here
                 edge_to_del = {}
@@ -282,7 +339,7 @@ class RGCNLinkRankSampler:
                         edge_to_del[canonical_etype] = eid_to_del
                 old_frontier = p_frontier
                 p_frontier = dgl.remove_edges(old_frontier, edge_to_del)
-            
+            '''
             p_block = dgl.to_block(p_frontier, p_cur)
             p_cur = {}
             for ntype in p_block.srctypes:
@@ -302,13 +359,31 @@ def fullgraph_eval(eval_g, model, blocks, pos_pairs, neg_pairs):
     t0 = time.time()
     p_h = model.forward_all(blocks)
 
-    test_head_ids, test_etypes, test_tail_ids = pos_pairs
-    test_neg_head_ids, _, test_neg_tail_ids = neg_pairs
+    test_head_ids, test_etypes, test_tail_ids, test_htypes, test_ttypes = pos_pairs
+    test_neg_head_ids, _, test_neg_tail_ids, test_neg_htypes, test_neg_ttypes = neg_pairs
 
-    phead_emb = p_h['node'][test_head_ids]
-    ptail_emb = p_h['node'][test_tail_ids]
-    nhead_emb = p_h['node'][test_neg_head_ids]
-    ntail_emb = p_h['node'][test_neg_tail_ids]
+    phead_emb = th.tensor(test_head_ids.shape)
+    ptail_emb = th.tensor(test_tail_ids.shape)
+    nhead_emb = th.tensor(test_neg_head_ids.shape)
+    ntail_emb = th.tensor(test_neg_tail_ids.shape)
+
+    if test_htypes is None:
+        phead_emb = p_h['node'][test_head_ids]
+        ptail_emb = p_h['node'][test_tail_ids]
+        nhead_emb = p_h['node'][test_neg_head_ids]
+        ntail_emb = p_h['node'][test_neg_tail_ids]
+    else:
+        for nt in eval_g.ntypes:
+            if nt in p_h:
+                loc = (test_htypes == int(nt))
+                phead_emb[loc] = p_h[nt][test_head_ids[loc]]
+                loc = (test_ttypes == int(nt))
+                ptail_emb[loc] = p_h[nt][test_tail_ids[loc]]
+                loc = (test_neg_htypes == int(nt))
+                nhead_emb[loc] = p_h[nt][test_neg_head_ids[loc]]
+                loc = (test_neg_ttypes == int(nt))
+                ntail_emb[loc] = p_h[nt][test_neg_tail_ids[loc]]
+
     pos_scores = model.calc_pos_score(phead_emb, ptail_emb, test_etypes)
     pos_scores = F.logsigmoid(pos_scores).reshape(phead_emb.shape[0], -1).cpu()
 
@@ -400,28 +475,50 @@ def evaluate(model, dataloader, bsize, neg_cnt):
         print('Test average {}: {}'.format(k, v))
 
 def main(args):
-    data = load_data(args.dataset)
-    num_nodes = data.num_nodes
-    print(num_nodes)
-    train_data = data.train
-    valid_data = data.valid
-    test_data = data.test
-    num_rels = data.num_rels
+    if args.dataset == "drug":
+        data = load_drug_data()
+        num_nodes = data.num_nodes
+        print(num_nodes)
+        train_data = data.train
+        valid_data = data.valid
+        test_data = data.test
+        all_rels = data.all_rels
+    
+        train_g = build_multi_ntype_graph_from_triplets(num_nodes, all_rels, [train_data])
+        valid_g = build_multi_ntype_graph_from_triplets(num_nodes, all_rels, [train_data, valid_data])
+        test_g = build_multi_ntype_graph_from_triplets(num_nodes, all_rels, [train_data, valid_data, test_data])
+    else:
+        data = load_data(args.dataset)
+        num_nodes = data.num_nodes
+        print(num_nodes)
+        train_data = data.train.transpose()
+        valid_data = data.valid.transpose()
+        test_data = data.test.transpose()
+        num_rels = data.num_rels
 
-    train_g = build_graph_from_triplets(num_nodes, num_rels, [train_data])
-    valid_g = build_graph_from_triplets(num_nodes, num_rels, [train_data, valid_data])
-    test_g = build_graph_from_triplets(num_nodes, num_rels, [train_data, valid_data, test_data])
+        train_g = build_graph_from_triplets(num_nodes, num_rels, [train_data])
+        valid_g = build_graph_from_triplets(num_nodes, num_rels, [train_data, valid_data])
+        test_g = build_graph_from_triplets(num_nodes, num_rels, [train_data, valid_data, test_data])
+        all_rels = num_rels
 
     batch_size = args.batch_size
     chunk_size = args.chunk_size
     valid_batch_size = args.valid_batch_size
     fanouts = [args.fanout if args.fanout > 0 else None] * args.n_layers
 
-    train_src, train_rel, train_dst = train_data.transpose()
+    if len(train_data) == 3:
+        train_src, train_rel, train_dst = train_data
+        train_htypes = None
+        train_ttypes = None
+    else:
+        assert len(train_data) == 5
+        train_src, train_dst, train_src_type, train_rel, train_dst_type = train_data
+        train_htypes = th.from_numpy(train_src_type)
+        train_ttypes = th.from_numpy(train_dst_type)
     head_ids = th.from_numpy(train_src)
     tail_ids = th.from_numpy(train_dst)
     etypes = th.from_numpy(train_rel)
-    num_train_edges = train_data.shape[0]
+    num_train_edges = etypes.shape[0]
     pos_seed = th.arange((num_train_edges//batch_size) * batch_size)
 
     # train dataloader
@@ -429,12 +526,16 @@ def main(args):
                                   num_train_edges,
                                   etypes,
                                   etypes,
-                                  num_rels,
+                                  all_rels,
                                   head_ids,
                                   tail_ids,
                                   fanouts,
                                   nhead_ids=head_ids,
-                                  ntail_ids=tail_ids)
+                                  ntail_ids=tail_ids,
+                                  phead_type=train_htypes,
+                                  ptail_type=train_ttypes,
+                                  nhead_type=train_htypes,
+                                  ntail_type=train_ttypes)
 
     dataloader = DataLoader(dataset=pos_seed,
                             batch_size=batch_size,
@@ -445,26 +546,42 @@ def main(args):
                             num_workers=args.num_workers)
 
     # eval dataloader
-    valid_src, valid_rel, valid_dst = valid_data.transpose()
+    if len(valid_data) == 3:
+        valid_src, valid_rel, valid_dst = valid_data
+        valid_htypes = None
+        valid_ttypes = None
+        valid_neg_htypes = None
+        valid_neg_ttypes = None
+    else:
+        assert len(valid_data) == 5
+        valid_src, valid_dst, valid_src_trype, valid_rel, valid_dst_type = valid_data
+        valid_htypes = th.from_numpy(valid_src_trype)
+        valid_ttypes = th.from_numpy(valid_dst_type)
+        valid_neg_htypes = th.cat([train_htypes, valid_htypes])
+        valid_neg_ttypes = th.cat([train_ttypes, valid_ttypes])
     valid_head_ids = th.from_numpy(valid_src)
     valid_tail_ids = th.from_numpy(valid_dst)
     valid_etypes = th.from_numpy(valid_rel)
     valid_neg_head_ids = th.cat([head_ids, valid_head_ids])
     valid_neg_tail_ids = th.cat([tail_ids, valid_tail_ids])
     valid_neg_etypes = th.cat([etypes, valid_etypes])
-    num_valid_edges = valid_data.shape[0] + num_train_edges
+    num_valid_edges = valid_etypes.shape[0] + num_train_edges
     valid_seed = th.arange(valid_etypes.shape[0])
 
     valid_sampler = RGCNLinkRankSampler(valid_g,
                                         num_valid_edges,
                                         valid_etypes,
                                         valid_neg_etypes,
-                                        num_rels,
+                                        all_rels,
                                         valid_head_ids,
                                         valid_tail_ids,
                                         [None] * args.n_layers,
                                         nhead_ids=valid_neg_head_ids,
                                         ntail_ids=valid_neg_tail_ids,
+                                        phead_type=valid_htypes,
+                                        ptail_type=valid_ttypes,
+                                        nhead_type=valid_neg_htypes,
+                                        ntail_type=valid_neg_ttypes,
                                         num_neg=args.valid_neg_cnt,
                                         is_train=False)
     valid_dataloader = DataLoader(dataset=valid_seed,
@@ -475,7 +592,19 @@ def main(args):
                                   drop_last=False,
                                   num_workers=args.num_workers)
 
-    test_src, test_rel, test_dst = test_data.transpose()
+    if len(test_data) == 3:
+        test_src, test_rel, test_dst = test_data
+        test_stypes = None
+        test_dtypes = None
+        test_neg_htypes = None
+        test_neg_ttypes = None
+    else:
+        assert len(test_data) == 5
+        test_src, test_dst, test_src_type, test_rel, test_dst_type = test_data
+        test_htypes = th.from_numpy(test_src_type)
+        test_ttypes = th.from_numpy(test_dst_type)
+        test_neg_htypes = th.cat([valid_neg_htypes, test_htypes])
+        test_neg_ttypes = th.cat([valid_neg_ttypes, test_ttypes])
     test_head_ids = th.from_numpy(test_src)
     test_tail_ids = th.from_numpy(test_dst)
     test_etypes = th.from_numpy(test_rel)
@@ -499,19 +628,23 @@ def main(args):
                 cur[ntype] = block.srcnodes[ntype].data[dgl.NID]
             test_blocks.insert(0, block)
     else:
-        num_test_edges = test_data.shape[0] + num_valid_edges
+        num_test_edges = test_etypes.shape[0] + num_valid_edges
         test_seed = th.arange(test_etypes.shape[0])
 
         test_sampler = RGCNLinkRankSampler(test_g,
                                             num_test_edges,
                                             test_etypes,
                                             test_neg_etypes,
-                                            num_rels,
+                                            all_rels,
                                             test_head_ids,
                                             test_tail_ids,
                                             [None] * args.n_layers,
                                             nhead_ids=test_neg_head_ids,
                                             ntail_ids=test_neg_tail_ids,
+                                            phead_type=test_htypes,
+                                            ptail_type=test_ttypes,
+                                            nhead_type=test_neg_htypes,
+                                            ntail_type=test_neg_ttypes,
                                             num_neg=args.test_neg_cnt,
                                             is_train=False)
         test_dataloader = DataLoader(dataset=test_seed,
@@ -526,7 +659,7 @@ def main(args):
     model = LinkPredict(test_g,
                         args.gpu if args.gpu >= 0 else 'cpu',
                         args.n_hidden,
-                        num_rels,
+                        all_rels,
                         num_bases=args.n_bases,
                         num_hidden_layers=args.n_layers,
                         dropout=args.dropout,
@@ -577,8 +710,8 @@ def main(args):
     gc.collect()
     if args.test_neg_cnt == -1:
         fullgraph_eval(test_g, model, test_blocks,
-                      (test_head_ids, test_etypes, test_tail_ids),
-                      (test_neg_head_ids, test_neg_etypes, test_neg_tail_ids))
+                      (test_head_ids, test_etypes, test_tail_ids, test_htypes, test_ttypes),
+                      (test_neg_head_ids, test_neg_etypes, test_neg_tail_ids, test_neg_htypes, test_neg_ttypes))
     else:
         evaluate(model, test_dataloader, args.valid_batch_size, args.test_neg_cnt)
 
