@@ -415,7 +415,7 @@ def main(args):
     batch_size = args.batch_size
     chunk_size = args.chunk_size
     valid_batch_size = args.valid_batch_size
-    fanouts = [args.fanout] * args.n_layers
+    fanouts = [args.fanout if args.fanout > 0 else None] * args.n_layers
 
     train_src, train_rel, train_dst = train_data.transpose()
     head_ids = th.from_numpy(train_src)
@@ -586,7 +586,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='RGCN')
     parser.add_argument("--dropout", type=float, default=0.2,
             help="dropout probability")
-    parser.add_argument("--n-hidden", type=int, default=500,
+    parser.add_argument("--n-hidden", type=int, default=200,
             help="number of hidden units")
     parser.add_argument("--gpu", type=int, default=-1,
             help="gpu")
