@@ -131,7 +131,7 @@ class RelGraphEmbed(nn.Module):
         # create weight embeddings for each node for each relation
         self.embeds = nn.ParameterDict()
         for ntype in g.ntypes:
-            embed = nn.Parameter(th.Tensor(g.number_of_nodes(ntype), self.embed_size))
+            embed = nn.Parameter(th.Tensor(g.number_of_nodes(ntype), self.embed_size).pin_memory())
             nn.init.xavier_uniform_(embed, gain=nn.init.calculate_gain('relu'))
             self.embeds[ntype] = embed
 

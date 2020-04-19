@@ -162,28 +162,31 @@ def build_graph_from_triplets(num_nodes, num_rels, edge_lists, reverse=True):
     rel = []
     dst = []
     raw_subg = {}
+    print(num_rels)
 
     # here there is noly one node type
     s_type = "node"
     d_type = "node"
-    for edges in edge_lists:
-        for edge in edges:
-            s, r, d = edge
-            r_type = str(r)
-            e_type = (s_type, r_type, d_type)
+    edge_list = np.concatenate(edge_lists)
+    print(len(edge_list))
 
-            if raw_subg.get(e_type, None) is None:
-                raw_subg[e_type] = ([], [])
-            raw_subg[e_type][0].append(s)
-            raw_subg[e_type][1].append(d)
+    for edge in edge_list:
+        s, r, d = edge
+        r_type = str(r)
+        e_type = (s_type, r_type, d_type)
 
-            if reverse is True:
-                r_type = str(r + num_rels)
-                re_type = (d_type, r_type, s_type)
-                if raw_subg.get(re_type, None) is None:
-                    raw_subg[re_type] = ([], [])
-                raw_subg[re_type][0].append(d)
-                raw_subg[re_type][1].append(s)
+        if raw_subg.get(e_type, None) is None:
+            raw_subg[e_type] = ([], [])
+        raw_subg[e_type][0].append(s)
+        raw_subg[e_type][1].append(d)
+
+        if reverse is True:
+            r_type = str(r + num_rels)
+            re_type = (d_type, r_type, s_type)
+            if raw_subg.get(re_type, None) is None:
+                raw_subg[re_type] = ([], [])
+            raw_subg[re_type][0].append(d)
+            raw_subg[re_type][1].append(s)
 
     subg = []
     for e_type, val in raw_subg.items():
