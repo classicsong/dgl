@@ -358,7 +358,8 @@ class RGCNLinkRankSampler:
         
         return (bsize, p_g, n_g, p_blocks, n_blocks)
 
-def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_info, pos_pairs, neg_pairs):
+def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_info,
+    pos_pairs, neg_pairs, eval_neg_cnt):
     model.eval()
     t0 = time.time()
 
@@ -382,6 +383,8 @@ def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_
         pos_batch_size = 1000
         pos_cnt = test_head_ids.shape[0]
         total_cnt = 0
+        if eval_neg_cnt > 0:
+            total_seed = th.randint(test_neg_head_ids.shape[0], (eval_neg_cnt * ((pos_cnt // pos_batch_size) + 1), ))
         for p_i in range(int((pos_cnt + pos_batch_size - 1) // pos_batch_size)):
             print("Eval {}-{}".format(p_i * pos_batch_size, 
                                       (p_i + 1) * pos_batch_size \
@@ -422,35 +425,47 @@ def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_
                         ptail_emb[loc] = p_h[nt][sub_test_tail_ids[loc]]
 
             pos_scores = model.calc_pos_score(phead_emb, ptail_emb, sub_test_etypes)
-            pos_scores = F.logsigmoid(pos_scores).reshape(phead_emb.shape[0], -1).cpu()
-            print(pos_scores.shape)
+            pos_scores = F.logsigmoid(pos_scores).reshape(phead_emb.shape[0], -1).detach().cpu()
+
+            if eval_neg_cnt > 0:
+                seed = total_seed[p_i * pos_batch_size:(p_i + 1) * pos_batch_size]
+                seed_test_neg_head_ids= test_neg_head_ids[seed]
+                seed_test_neg_tail_ids = test_neg_tail_ids[seed]
+                if test_neg_htypes is not None:
+                    seed_test_neg_htypes = test_neg_htypes[seed]
+                    seed_test_neg_ttypes = test_neg_ttypes[seed]
+            else:
+                seed_test_neg_head_ids = test_neg_head_ids
+                seed_test_neg_tail_ids = test_neg_tail_ids
+                seed_test_neg_htypes = test_neg_htypes
+                seed_test_neg_ttypes = test_neg_ttypes
 
             neg_batch_size = 10000
-            neg_cnt = test_neg_head_ids.shape[0]
+            neg_cnt = seed_test_neg_head_ids.shape[0]
             t_neg_score = []
             h_neg_score = []
             for n_i in range(int((neg_cnt + neg_batch_size -1)//neg_batch_size)):
-                sub_test_neg_head_ids = test_neg_head_ids[n_i * neg_batch_size : \
-                                                        (n_i + 1) * neg_batch_size \
-                                                        if (n_i + 1) * neg_batch_size < neg_cnt
-                                                        else neg_cnt]
-                sub_test_neg_tail_ids = test_neg_tail_ids[n_i * neg_batch_size : \
-                                                        (n_i + 1) * neg_batch_size \
-                                                        if (n_i + 1) * neg_batch_size < neg_cnt
-                                                        else neg_cnt]
+                sub_test_neg_head_ids = seed_test_neg_head_ids[n_i * neg_batch_size : \
+                                                            (n_i + 1) * neg_batch_size \
+                                                            if (n_i + 1) * neg_batch_size < neg_cnt
+                                                            else neg_cnt]
+                sub_test_neg_tail_ids = seed_test_neg_tail_ids[n_i * neg_batch_size : \
+                                                            (n_i + 1) * neg_batch_size \
+                                                            if (n_i + 1) * neg_batch_size < neg_cnt
+                                                            else neg_cnt]
 
                 if test_htypes is None:
-                    nhead_emb = p_h['node'][sub_test_neg_head_ids]
-                    ntail_emb = p_h['node'][sub_test_neg_tail_ids]
+                    nhead_emb = p_h['node'][seed_test_neg_head_ids]
+                    ntail_emb = p_h['node'][seed_test_neg_tail_ids]
                 else:
-                    sub_test_neg_htypes = test_neg_htypes[n_i * neg_batch_size : \
-                                                          (n_i + 1) * neg_batch_size \
-                                                          if (n_i + 1) * neg_batch_size < neg_cnt
-                                                          else neg_cnt]
-                    sub_test_neg_ttypes = test_neg_ttypes[n_i * neg_batch_size : \
-                                                          (n_i + 1) * neg_batch_size \
-                                                          if (n_i + 1) * neg_batch_size < neg_cnt
-                                                          else neg_cnt]
+                    sub_test_neg_htypes = seed_test_neg_htypes[n_i * neg_batch_size : \
+                                                            (n_i + 1) * neg_batch_size \
+                                                            if (n_i + 1) * neg_batch_size < neg_cnt
+                                                            else neg_cnt]
+                    sub_test_neg_ttypes = seed_test_neg_ttypes[n_i * neg_batch_size : \
+                                                            (n_i + 1) * neg_batch_size \
+                                                            if (n_i + 1) * neg_batch_size < neg_cnt
+                                                            else neg_cnt]
                     nhead_emb = th.empty((sub_test_neg_head_ids.shape[0], dim_size), device=device)
                     ntail_emb = th.empty((sub_test_neg_tail_ids.shape[0], dim_size), device=device)
                     for nt in eval_g.ntypes:
@@ -465,24 +480,25 @@ def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_
                                                              sub_test_etypes,
                                                              1,
                                                              phead_emb.shape[0],
-                                                             ntail_emb.shape[0]).reshape(-1, ntail_emb.shape[0]))
+                                                             ntail_emb.shape[0]).reshape(-1, ntail_emb.shape[0]).detach().cpu())
                 h_neg_score.append(model.calc_neg_head_score(nhead_emb,
                                                              ptail_emb,
                                                              sub_test_etypes,
                                                              1,
                                                              ptail_emb.shape[0],
-                                                             nhead_emb.shape[0]).reshape(-1, nhead_emb.shape[0]))
+                                                             nhead_emb.shape[0]).reshape(-1, nhead_emb.shape[0]).detach().cpu())
             t_neg_score = th.cat(t_neg_score, dim=1)
             h_neg_score = th.cat(h_neg_score, dim=1)
-            t_neg_score = F.logsigmoid(t_neg_score).cpu()
-            h_neg_score = F.logsigmoid(h_neg_score).cpu()
+            t_neg_score = F.logsigmoid(t_neg_score)
+            h_neg_score = F.logsigmoid(h_neg_score)
 
+            canonical_etypes = eval_g.canonical_etypes
             for idx in range(phead_emb.shape[0]):
                 if test_htypes is None:
                     tail_pos = eval_g.has_edges_between(th.full((neg_cnt,), sub_test_head_ids[idx]).long(),
-                                                        test_neg_tail_ids,
+                                                        seed_test_neg_tail_ids,
                                                         etype=str(sub_test_etypes[idx].numpy().item()))
-                    head_pos = eval_g.has_edges_between(test_neg_head_ids,
+                    head_pos = eval_g.has_edges_between(seed_test_neg_head_ids,
                                                         th.full((neg_cnt,), sub_test_tail_ids[idx]).long(),
                                                         etype=str(sub_test_etypes[idx].numpy().item()))
                     loc = tail_pos == 1
@@ -491,26 +507,34 @@ def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_
                     h_neg_score[idx][loc] += pos_scores[idx]
 
                 else:
-                    head_type = str(sub_test_neg_htypes[idx])
-                    tail_type = str(sub_test_neg_ttypes[idx])
+                    head_type = str(sub_test_htypes[idx].numpy())
+                    tail_type = str(sub_test_ttypes[idx].numpy())
+
                     for t in eval_g.ntypes:
-                        loc = (test_neg_ttypes == int(t))
-                        tail_pos = eval_g.has_edges_between(th.full((neg_cnt,), sub_test_head_ids[idx]).long(),
-                                                            test_neg_tail_ids,
-                                                            etype=(head_type,
-                                                                str(sub_test_etypes[idx].numpy().item()),
-                                                                t))
-                        loc = loc & (tail_pos == 1)
-                        t_neg_score[idx][loc] += pos_scores[idx]
-                    
-                        loc = (test_neg_htypes == int(t))
-                        head_pos = eval_g.has_edges_between(test_neg_head_ids,
-                                                            th.full((neg_cnt,), sub_test_tail_ids[idx]).long(),
-                                                            etype=(t,
-                                                                str(sub_test_etypes[idx].numpy().item()),
-                                                                tail_type))
-                        loc = loc & (head_pos == 1)
-                        h_neg_score[idx][loc] += pos_scores[idx]
+                        if (head_type, str(sub_test_etypes[idx].numpy().item()), t) in canonical_etypes:
+                            loc = (seed_test_neg_ttypes == int(t))
+                            t_neg_tail_ids = seed_test_neg_tail_ids[loc]
+
+                            # there is some neg tail in this type
+                            if t_neg_tail_ids.shape[0] > 0:
+                                tail_pos = eval_g.has_edges_between(th.full((t_neg_tail_ids.shape[0],), sub_test_head_ids[idx]).long(),
+                                                                    t_neg_tail_ids,
+                                                                    etype=(head_type,
+                                                                        str(sub_test_etypes[idx].numpy().item()),
+                                                                        t))
+                                t_neg_score[idx][loc][tail_pos == 1] += pos_scores[idx]
+                        if (t, str(sub_test_etypes[idx].numpy().item()), tail_type) in canonical_etypes:
+                            loc = (seed_test_neg_htypes == int(t))
+                            t_neg_head_ids = seed_test_neg_head_ids[loc]
+
+                            # there is some neg head in this type
+                            if t_neg_head_ids.shape[0] > 0:
+                                head_pos = eval_g.has_edges_between(t_neg_head_ids,
+                                                                    th.full((t_neg_head_ids.shape[0],), sub_test_tail_ids[idx]).long(),
+                                                                    etype=(t,
+                                                                        str(sub_test_etypes[idx].numpy().item()),
+                                                                        tail_type))
+                                h_neg_score[idx][loc][head_pos == 1] += pos_scores[idx]
             neg_score = th.cat([h_neg_score, t_neg_score], dim = 1)
 
             rankings = th.sum(neg_score >= pos_scores, dim=1) + 1
@@ -681,7 +705,7 @@ def main(args):
     num_valid_edges = valid_etypes.shape[0] + num_train_edges
     valid_seed = th.arange(valid_etypes.shape[0])
         
-    if args.valid_neg_cnt > 0:
+    if args.sample_based_eval:
         valid_sampler = RGCNLinkRankSampler(valid_g,
                                             num_valid_edges,
                                             valid_etypes,
@@ -727,7 +751,7 @@ def main(args):
     test_neg_tail_ids = th.cat([valid_neg_tail_ids, test_tail_ids])
     test_neg_etypes = th.cat([valid_neg_etypes, test_etypes])
     # test dataloader
-    if args.valid_neg_cnt > -1:
+    if args.sample_based_eval:
         num_test_edges = test_etypes.shape[0] + num_valid_edges
         test_seed = th.arange(test_etypes.shape[0])
 
@@ -757,7 +781,7 @@ def main(args):
                                     num_workers=args.num_workers)
 
     # full neg evaluation
-    if args.valid_neg_cnt == -1 or args.test_neg_cnt == -1:
+    if args.sample_based_eval is False:
         eval_minibatch_blocks = []
         eval_minibatch_info = []
         for ntype in test_g.ntypes:
@@ -832,10 +856,11 @@ def main(args):
             dur = t1 - t0
             print("Epoch {} takes {} seconds".format(epoch, dur))
         gc.collect()
-        if args.valid_neg_cnt == -1:
+        if args.sample_based_eval is False:
             fullgraph_eval(test_g, model, device, args.n_hidden, eval_minibatch_blocks, eval_minibatch_info,
                       (valid_head_ids, valid_etypes, valid_tail_ids, valid_htypes, valid_ttypes),
-                      (valid_neg_head_ids, valid_neg_etypes, valid_neg_tail_ids, valid_neg_htypes, valid_neg_ttypes))
+                      (valid_neg_head_ids, valid_neg_etypes, valid_neg_tail_ids, valid_neg_htypes, valid_neg_ttypes),
+                      args.valid_neg_cnt)
         else:
             evaluate(model, valid_dataloader, args.valid_batch_size, args.valid_neg_cnt)
     print()
@@ -843,10 +868,11 @@ def main(args):
         th.save(model.state_dict(), args.model_path)
 
     gc.collect()
-    if args.test_neg_cnt == -1:
+    if args.sample_based_eval is False:
         fullgraph_eval(test_g, model, device, args.n_hidden, eval_minibatch_blocks, eval_minibatch_info,
                       (test_head_ids, test_etypes, test_tail_ids, test_htypes, test_ttypes),
-                      (test_neg_head_ids, test_neg_etypes, test_neg_tail_ids, test_neg_htypes, test_neg_ttypes))
+                      (test_neg_head_ids, test_neg_etypes, test_neg_tail_ids, test_neg_htypes, test_neg_ttypes),
+                      args.test_neg_cnt)
     else:
         evaluate(model, test_dataloader, args.valid_batch_size, args.test_neg_cnt)
 
@@ -892,6 +918,8 @@ if __name__ == '__main__':
             help="Validation negative sample cnt.")
     parser.add_argument("--test-neg-cnt", type=int, default=1000,
             help="Test negative sample cnt.")
+    parser.add_argument("--sample-based-eval", default=False, action='store_true',
+            help="Use sample based evalution method or full-graph based evalution method")
     parser.add_argument("--num-workers", type=int, default=0,
             help="Number of workers for dataloader.")
 

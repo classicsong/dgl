@@ -112,23 +112,41 @@ def build_multi_ntype_graph_from_triplets(num_nodes, all_rels, data_lists, rever
         (reciprocal of node incoming degree)
     """
     raw_subg = {}
+
+    head_list = []
+    tail_list = []
+    head_type_list = []
+    rel_type_list = []
+    tail_type_list = []
     for datas in data_lists:
         head, tail, head_type, rel_type, tail_type = datas
-        for h, t, ht, rt, tt in zip(head, tail, head_type, rel_type, tail_type):
-            e_type = (str(ht), str(rt), str(tt))
-            if raw_subg.get(e_type, None) is None:
-                raw_subg[e_type] = ([], [])
+        head_list.append(head)
+        tail_list.append(tail)
+        head_type_list.append(head_type)
+        rel_type_list.append(rel_type)
+        tail_type_list.append(tail_type)
 
-            raw_subg[e_type][0].append(h)
-            raw_subg[e_type][1].append(t)
+    head = np.concatenate(head_list)
+    tail = np.concatenate(tail_list)
+    head_type = np.concatenate(head_type_list)
+    rel_type = np.concatenate(rel_type_list)
+    tail_type = np.concatenate(tail_type_list)
+        
+    for h, t, ht, rt, tt in zip(head, tail, head_type, rel_type, tail_type):
+        e_type = (str(ht), str(rt), str(tt))
+        if raw_subg.get(e_type, None) is None:
+            raw_subg[e_type] = ([], [])
+
+        raw_subg[e_type][0].append(h)
+        raw_subg[e_type][1].append(t)
             
-            if reverse is True:
-                r_type = str(rt + len(all_rels))
-                re_type = (str(tt), r_type, str(ht))
-                if raw_subg.get(re_type, None) is None:
-                    raw_subg[re_type] = ([], [])
-                raw_subg[re_type][0].append(t)
-                raw_subg[re_type][1].append(h)
+        if reverse is True:
+            r_type = str(rt + len(all_rels))
+            re_type = (str(tt), r_type, str(ht))
+            if raw_subg.get(re_type, None) is None:
+                raw_subg[re_type] = ([], [])
+            raw_subg[re_type][0].append(t)
+            raw_subg[re_type][1].append(h)
 
     subg = []
     for e_type, val in raw_subg.items():
