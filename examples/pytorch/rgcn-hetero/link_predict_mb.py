@@ -455,8 +455,8 @@ def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_
                                                             else neg_cnt]
 
                 if test_htypes is None:
-                    nhead_emb = p_h['node'][seed_test_neg_head_ids]
-                    ntail_emb = p_h['node'][seed_test_neg_tail_ids]
+                    nhead_emb = p_h['node'][sub_test_neg_head_ids]
+                    ntail_emb = p_h['node'][sub_test_neg_tail_ids]
                 else:
                     sub_test_neg_htypes = seed_test_neg_htypes[n_i * neg_batch_size : \
                                                             (n_i + 1) * neg_batch_size \
