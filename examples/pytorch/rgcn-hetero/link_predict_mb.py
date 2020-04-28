@@ -383,8 +383,36 @@ def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_
         pos_batch_size = 1000
         pos_cnt = test_head_ids.shape[0]
         total_cnt = 0
+
+        # unique test head and tail nodes
+        if test_htypes is None:
+            unique_neg_head_ids = th.unique(test_neg_head_ids)
+            unique_neg_tail_ids = th.unique(test_neg_tail_ids)
+            unique_neg_htypes = None
+            unique_neg_ttypes = None
+        else:
+            unique_neg_head_ids = []
+            unique_neg_tail_ids = []
+            unique_neg_htypes = []
+            unique_neg_ttypes = []
+            for nt in eval_g.ntypes:
+                cols = (test_neg_htypes == int(nt))
+                unique_ids = th.unique(test_neg_head_ids[cols])
+                unique_neg_head_ids.append(unique_ids)
+                unique_neg_htypes.append(th.full((unique_ids.shape[0],), int(nt)))
+
+                cols = (test_neg_ttypes == int(nt))
+                unique_ids = th.unique(test_neg_tail_ids[cols])
+                unique_neg_tail_ids.append(unique_ids)
+                unique_neg_ttypes.append(th.full((unique_ids.shape[0],), int(nt)))
+            unique_neg_head_ids = th.cat(unique_neg_head_ids)
+            unique_neg_tail_ids = th.cat(unique_neg_tail_ids)
+            unique_neg_htypes = th.cat(unique_neg_htypes)
+            unique_neg_ttypes = th.cat(unique_neg_ttypes)
+
         if eval_neg_cnt > 0:
-            total_seed = th.randint(test_neg_head_ids.shape[0], (eval_neg_cnt * ((pos_cnt // pos_batch_size) + 1), ))
+            total_neg_head_seed = th.randint(unique_neg_head_ids.shape[0], (eval_neg_cnt * ((pos_cnt // pos_batch_size) + 1), ))
+            total_neg_tail_seed = th.randint(unique_neg_tail_ids.shape[0], (eval_neg_cnt * ((pos_cnt // pos_batch_size) + 1), ))
         for p_i in range(int((pos_cnt + pos_batch_size - 1) // pos_batch_size)):
             print("Eval {}-{}".format(p_i * pos_batch_size, 
                                       (p_i + 1) * pos_batch_size \
@@ -428,50 +456,66 @@ def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_
             pos_scores = F.logsigmoid(pos_scores).reshape(phead_emb.shape[0], -1).detach().cpu()
 
             if eval_neg_cnt > 0:
-                seed = total_seed[p_i * pos_batch_size:(p_i + 1) * pos_batch_size]
-                seed_test_neg_head_ids= test_neg_head_ids[seed]
-                seed_test_neg_tail_ids = test_neg_tail_ids[seed]
+                neg_head_seed = total_neg_head_seed[p_i * eval_neg_cnt:(p_i + 1) * eval_neg_cnt]
+                neg_tail_seed = total_neg_tail_seed[p_i * eval_neg_cnt:(p_i + 1) * eval_neg_cnt]
+                seed_test_neg_head_ids= unique_neg_head_ids[neg_head_seed]
+                seed_test_neg_tail_ids = unique_neg_tail_ids[neg_tail_seed]
                 if test_neg_htypes is not None:
-                    seed_test_neg_htypes = test_neg_htypes[seed]
-                    seed_test_neg_ttypes = test_neg_ttypes[seed]
+                    seed_test_neg_htypes = unique_neg_htypes[neg_head_seed]
+                    seed_test_neg_ttypes = unique_neg_ttypes[neg_tail_seed]
             else:
-                seed_test_neg_head_ids = test_neg_head_ids
-                seed_test_neg_tail_ids = test_neg_tail_ids
-                seed_test_neg_htypes = test_neg_htypes
-                seed_test_neg_ttypes = test_neg_ttypes
+                seed_test_neg_head_ids = unique_neg_head_ids
+                seed_test_neg_tail_ids = unique_neg_tail_ids
+                seed_test_neg_htypes = unique_neg_htypes
+                seed_test_neg_ttypes = unique_neg_ttypes
 
             neg_batch_size = 10000
-            neg_cnt = seed_test_neg_head_ids.shape[0]
+            head_neg_cnt = seed_test_neg_head_ids.shape[0]
+            tail_neg_cnt = seed_test_neg_tail_ids.shape[0]
             t_neg_score = []
             h_neg_score = []
-            for n_i in range(int((neg_cnt + neg_batch_size -1)//neg_batch_size)):
+            for n_i in range(int((head_neg_cnt + neg_batch_size -1)//neg_batch_size)):
                 sub_test_neg_head_ids = seed_test_neg_head_ids[n_i * neg_batch_size : \
                                                             (n_i + 1) * neg_batch_size \
-                                                            if (n_i + 1) * neg_batch_size < neg_cnt
-                                                            else neg_cnt]
-                sub_test_neg_tail_ids = seed_test_neg_tail_ids[n_i * neg_batch_size : \
-                                                            (n_i + 1) * neg_batch_size \
-                                                            if (n_i + 1) * neg_batch_size < neg_cnt
-                                                            else neg_cnt]
-
+                                                            if (n_i + 1) * neg_batch_size < head_neg_cnt
+                                                            else head_neg_cnt]
                 if test_htypes is None:
                     nhead_emb = p_h['node'][sub_test_neg_head_ids]
-                    ntail_emb = p_h['node'][sub_test_neg_tail_ids]
                 else:
                     sub_test_neg_htypes = seed_test_neg_htypes[n_i * neg_batch_size : \
                                                             (n_i + 1) * neg_batch_size \
-                                                            if (n_i + 1) * neg_batch_size < neg_cnt
-                                                            else neg_cnt]
-                    sub_test_neg_ttypes = seed_test_neg_ttypes[n_i * neg_batch_size : \
-                                                            (n_i + 1) * neg_batch_size \
-                                                            if (n_i + 1) * neg_batch_size < neg_cnt
-                                                            else neg_cnt]
+                                                            if (n_i + 1) * neg_batch_size < head_neg_cnt
+                                                            else head_neg_cnt]
+
                     nhead_emb = th.empty((sub_test_neg_head_ids.shape[0], dim_size), device=device)
-                    ntail_emb = th.empty((sub_test_neg_tail_ids.shape[0], dim_size), device=device)
                     for nt in eval_g.ntypes:
                         if nt in p_h:
                             loc = (sub_test_neg_htypes == int(nt))
                             nhead_emb[loc] = p_h[nt][sub_test_neg_head_ids[loc]]
+                            
+                h_neg_score.append(model.calc_neg_head_score(nhead_emb,
+                                                             ptail_emb,
+                                                             sub_test_etypes,
+                                                             1,
+                                                             ptail_emb.shape[0],
+                                                             nhead_emb.shape[0]).reshape(-1, nhead_emb.shape[0]).detach().cpu())
+
+            for n_i in range(int((tail_neg_cnt + neg_batch_size -1)//neg_batch_size)):
+                sub_test_neg_tail_ids = seed_test_neg_tail_ids[n_i * neg_batch_size : \
+                                                            (n_i + 1) * neg_batch_size \
+                                                            if (n_i + 1) * neg_batch_size < tail_neg_cnt
+                                                            else tail_neg_cnt]
+
+                if test_htypes is None:
+                    ntail_emb = p_h['node'][sub_test_neg_tail_ids]
+                else:
+                    sub_test_neg_ttypes = seed_test_neg_ttypes[n_i * neg_batch_size : \
+                                                            (n_i + 1) * neg_batch_size \
+                                                            if (n_i + 1) * neg_batch_size < tail_neg_cnt
+                                                            else tail_neg_cnt]
+                    ntail_emb = th.empty((sub_test_neg_tail_ids.shape[0], dim_size), device=device)
+                    for nt in eval_g.ntypes:
+                        if nt in p_h:
                             loc = (sub_test_neg_ttypes == int(nt))
                             ntail_emb[loc] = p_h[nt][sub_test_neg_tail_ids[loc]]
 
@@ -481,12 +525,6 @@ def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_
                                                              1,
                                                              phead_emb.shape[0],
                                                              ntail_emb.shape[0]).reshape(-1, ntail_emb.shape[0]).detach().cpu())
-                h_neg_score.append(model.calc_neg_head_score(nhead_emb,
-                                                             ptail_emb,
-                                                             sub_test_etypes,
-                                                             1,
-                                                             ptail_emb.shape[0],
-                                                             nhead_emb.shape[0]).reshape(-1, nhead_emb.shape[0]).detach().cpu())
             t_neg_score = th.cat(t_neg_score, dim=1)
             h_neg_score = th.cat(h_neg_score, dim=1)
             t_neg_score = F.logsigmoid(t_neg_score)
@@ -495,11 +533,11 @@ def fullgraph_eval(eval_g, model, device, dim_size, minibatch_blocks, minibatch_
             canonical_etypes = eval_g.canonical_etypes
             for idx in range(phead_emb.shape[0]):
                 if test_htypes is None:
-                    tail_pos = eval_g.has_edges_between(th.full((neg_cnt,), sub_test_head_ids[idx]).long(),
+                    tail_pos = eval_g.has_edges_between(th.full((seed_test_neg_tail_ids.shape[0],), sub_test_head_ids[idx]).long(),
                                                         seed_test_neg_tail_ids,
                                                         etype=str(sub_test_etypes[idx].numpy().item()))
                     head_pos = eval_g.has_edges_between(seed_test_neg_head_ids,
-                                                        th.full((neg_cnt,), sub_test_tail_ids[idx]).long(),
+                                                        th.full((seed_test_neg_head_ids.shape[0],), sub_test_tail_ids[idx]).long(),
                                                         etype=str(sub_test_etypes[idx].numpy().item()))
                     loc = tail_pos == 1
                     t_neg_score[idx][loc] += pos_scores[idx]
@@ -654,7 +692,7 @@ def main(args):
     tail_ids = th.from_numpy(train_dst)
     etypes = th.from_numpy(train_rel)
     num_train_edges = etypes.shape[0]
-    #pos_seed = th.arange(batch_size * 2) #num_train_edges//batch_size) * batch_size)
+    #pos_seed = th.arange(batch_size * 5000) #num_train_edges//batch_size) * batch_size)
     pos_seed = th.arange((num_train_edges//batch_size) * batch_size)
 
     # train dataloader
@@ -857,6 +895,7 @@ def main(args):
             print("Epoch {} takes {} seconds".format(epoch, dur))
         gc.collect()
         if args.sample_based_eval is False:
+            continue
             fullgraph_eval(test_g, model, device, args.n_hidden, eval_minibatch_blocks, eval_minibatch_info,
                       (valid_head_ids, valid_etypes, valid_tail_ids, valid_htypes, valid_ttypes),
                       (valid_neg_head_ids, valid_neg_etypes, valid_neg_tail_ids, valid_neg_htypes, valid_neg_ttypes),
@@ -869,6 +908,7 @@ def main(args):
 
     gc.collect()
     if args.sample_based_eval is False:
+        return
         fullgraph_eval(test_g, model, device, args.n_hidden, eval_minibatch_blocks, eval_minibatch_info,
                       (test_head_ids, test_etypes, test_tail_ids, test_htypes, test_ttypes),
                       (test_neg_head_ids, test_neg_etypes, test_neg_tail_ids, test_neg_htypes, test_neg_ttypes),
