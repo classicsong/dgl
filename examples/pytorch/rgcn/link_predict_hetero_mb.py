@@ -145,26 +145,29 @@ def get_loss(h_emb, t_emb, nh_emb, nt_emb, r_emb,
     num_chunks, chunk_size, neg_sample_size, regularization_coef):
     # triplets is a list of data samples (positive and negative)
     # each row in the triplets is a 3-tuple of (source, relation, destination)
-    pos_score = calc_pos_score(h_emb, t_emb, r_emb)
+    pos_score = calc_pos_score(h_emb, t_emb, r_emb).view(-1, 1)
     t_neg_score = calc_neg_tail_score(h_emb, nt_emb, r_emb, num_chunks, chunk_size, neg_sample_size)
     h_neg_score = calc_neg_head_score(nh_emb, t_emb, r_emb, num_chunks, chunk_size, neg_sample_size)
-    pos_score = F.logsigmoid(pos_score)
-    h_neg_score = h_neg_score.reshape(-1, neg_sample_size)
-    t_neg_score = t_neg_score.reshape(-1, neg_sample_size)
-    h_neg_score = F.logsigmoid(-h_neg_score).mean(dim=1)
-    t_neg_score = F.logsigmoid(-t_neg_score).mean(dim=1)
+    #pos_score = F.logsigmoid(pos_score)
+    h_neg_score = h_neg_score.view(-1, 1)
+    t_neg_score = t_neg_score.view(-1, 1)
+    #h_neg_score = F.logsigmoid(-h_neg_score).mean(dim=1)
+    #t_neg_score = F.logsigmoid(-t_neg_score).mean(dim=1)
 
-    pos_score = pos_score.mean()
-    h_neg_score = h_neg_score.mean()
-    t_neg_score = t_neg_score.mean()
-    predict_loss = -(2 * pos_score + h_neg_score + t_neg_score) / 2
+    score = th.cat([pos_score, h_neg_score, t_neg_score])
+    label = th.cat([th.full((pos_score.shape), 1),
+                    th.full((h_neg_score.shape), 0),
+                    th.full((t_neg_score.shape), 0)]).to(score.device)
+    predict_loss = F.binary_cross_entropy_with_logits(score, label)
+    #pos_score = pos_score.mean()
+    #h_neg_score = h_neg_score.mean()
+    #t_neg_score = t_neg_score.mean()
+    #predict_loss = -(2 * pos_score + h_neg_score + t_neg_score) / 2
 
     reg_loss = regularization_loss(h_emb, t_emb, r_emb, nh_emb, nt_emb)
 
-    print("pos loss {}, neg loss {}|{}, reg_loss {}".format(pos_score.detach(),
-                                                            h_neg_score.detach(),
-                                                            t_neg_score.detach(),
-                                                            regularization_coef * reg_loss.detach()))
+    print("pos {}, reg_loss {}".format(predict_loss.detach(),
+                                       regularization_coef * reg_loss.detach()))
     return predict_loss + regularization_coef * reg_loss
 
 class NodeSampler:
@@ -283,24 +286,29 @@ def evaluate(embed_layer, model, dataloader, node_feats, bsize, neg_cnt, queue):
             p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb = \
                 model(p_blocks, p_feats, n_blocks, n_feats, p_g, n_g)
 
-            pos_score = calc_pos_score(p_head_emb, p_tail_emb, r_emb)
+            pos_score = calc_pos_score(p_head_emb, p_tail_emb, r_emb).view(-1,1)
             t_neg_score = calc_neg_tail_score(p_head_emb,
                                               n_tail_emb,
                                               r_emb,
                                               1,
                                               bsize,
-                                              neg_cnt)
+                                              neg_cnt).squeeze(0)
             h_neg_score = calc_neg_head_score(n_head_emb,
                                               p_tail_emb,
                                               r_emb,
                                               1,
                                               bsize,
-                                              neg_cnt)
-            pos_scores = F.logsigmoid(pos_score).reshape(bsize, -1)
-            t_neg_score = F.logsigmoid(t_neg_score).reshape(bsize, neg_cnt)
-            h_neg_score = F.logsigmoid(h_neg_score).reshape(bsize, neg_cnt)
+                                              neg_cnt).squeeze(0)
+            #pos_scores = F.logsigmoid(pos_score).reshape(bsize, -1)
+            #t_neg_score = F.logsigmoid(t_neg_score).reshape(bsize, neg_cnt)
+            #h_neg_score = F.logsigmoid(h_neg_score).reshape(bsize, neg_cnt)
             neg_scores = th.cat([h_neg_score, t_neg_score], dim=1)
-            rankings = th.sum(neg_scores >= pos_scores, dim=1) + 1
+            scores = th.cat([pos_score, neg_scores], dim=1)
+            scores = th.sigmoid(scores)
+            _, indices = th.sort(scores, dim=1, descending=True)
+            #rankings = th.sum(neg_scores >= pos_scores, dim=1) + 1
+            indices = th.nonzero(indices == 0)
+            rankings = indices[:, 1].view(-1) + 1
             rankings = rankings.cpu().detach().numpy()
             for ranking in rankings:
                 logs.append({
@@ -385,7 +393,7 @@ def fullgraph_eval(g, embed_layer, model, device, node_feats, dim_size,
                 rel_emb = model.module.w_relation[eids_t]
 
             pos_score = calc_pos_score(phead_emb, ptail_emb, rel_emb)
-            pos_score = F.logsigmoid(pos_score).reshape(phead_emb.shape[0], -1)
+            #pos_score = F.logsigmoid(pos_score).reshape(phead_emb.shape[0], -1)
 
             if neg_cnt > 0:
                 n_eids = neg_eids[total_neg_seeds[p_i * neg_cnt:(p_i + 1) * neg_cnt]]
@@ -423,8 +431,8 @@ def fullgraph_eval(g, embed_layer, model, device, node_feats, dim_size,
                                                        ntail_emb.shape[0]).reshape(-1, ntail_emb.shape[0]))
             t_neg_score = th.cat(t_neg_score, dim=1)
             h_neg_score = th.cat(h_neg_score, dim=1)
-            t_neg_score = F.logsigmoid(t_neg_score)
-            h_neg_score = F.logsigmoid(h_neg_score)
+            #t_neg_score = F.logsigmoid(t_neg_score)
+            #h_neg_score = F.logsigmoid(h_neg_score)
 
             if filterred_test:
                 # exclude false neg edges
@@ -445,7 +453,7 @@ def fullgraph_eval(g, embed_layer, model, device, node_feats, dim_size,
                         eid_ec = eid_ec[loc_ec]
                         # has edge
                         if eid_ec.shape[0] > 0:
-                            false_neg_comp[idx_ec] = pos_score[idx]
+                            false_neg_comp[idx_ec] = -th.abs(pos_score[idx])
                     t_neg_score[idx][loc] += false_neg_comp
 
                     loc = head_pos == 1
@@ -460,11 +468,21 @@ def fullgraph_eval(g, embed_layer, model, device, node_feats, dim_size,
                         eid_ec = eid_ec[loc_ec]
                         # has edge
                         if eid_ec.shape[0] > 0:
-                            false_neg_comp[idx_ec] = pos_score[idx]
+                            false_neg_comp[idx_ec] = -th.abs(pos_score[idx])
                     h_neg_score[idx][loc] += false_neg_comp
 
             neg_score = th.cat([h_neg_score, t_neg_score], dim=1)
-            rankings = th.sum(neg_score >= pos_score, dim=1) + 1
+            pos_score = pos_score.view(-1,1)
+
+            print(pos_score.shape)
+            print(neg_score.shape)
+            #rankings = th.sum(neg_score >= pos_score, dim=1) + 1
+            scores = th.cat([pos_score, neg_score], dim=1)
+            scores = th.sigmoid(scores)
+            _, indices = th.sort(scores, dim=1, descending=True)
+            #rankings = th.sum(neg_scores >= pos_scores, dim=1) + 1
+            indices = th.nonzero(indices == 0)
+            rankings = indices[:, 1].view(-1) + 1
             rankings = rankings.cpu().detach().numpy()
             for ranking in rankings:
                 logs.append({
