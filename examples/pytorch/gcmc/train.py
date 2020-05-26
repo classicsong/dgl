@@ -13,6 +13,7 @@ import torch.nn as nn
 from data import MovieLens
 from model import BiDecoder, GCMCLayer
 from utils import get_activation, get_optimizer, torch_total_param_num, torch_net_info, MetricLogger
+import gc
 
 class Net(nn.Module):
     def __init__(self, args):
@@ -32,12 +33,17 @@ class Net(nn.Module):
                                  num_classes=len(args.rating_vals),
                                  num_basis=args.gen_r_num_basis_func)
 
-    def forward(self, enc_graph, dec_graph, ufeat, ifeat):
+    def forward(self, enc_graph, dec_graph, ufeat, ifeat, iter_f_e, iter_f_d):
+        t1 = time.time()
         user_out, movie_out = self.encoder(
             enc_graph,
             ufeat,
             ifeat)
+        t2 = time.time()
         pred_ratings = self.decoder(dec_graph, user_out, movie_out)
+        t3 = time.time()
+        iter_f_e.append(t2 - t1)
+        iter_f_d.append(t3 - t2)
         return pred_ratings
 
 def evaluate(args, net, dataset, segment='valid'):
@@ -59,7 +65,7 @@ def evaluate(args, net, dataset, segment='valid'):
     net.eval()
     with th.no_grad():
         pred_ratings = net(enc_graph, dec_graph,
-                           dataset.user_feature, dataset.movie_feature)
+                           dataset.user_feature, dataset.movie_feature, [], [])
     real_pred_ratings = (th.softmax(pred_ratings, dim=1) *
                          nd_possible_rating_values.view(1, -1)).sum(dim=1)
     rmse = ((real_pred_ratings - rating_values) ** 2.).mean().item()
@@ -107,21 +113,31 @@ def train(args):
 
     print("Start training ...")
     dur = []
+    iter_f_e = []
+    iter_f_d = []
+    iter_b = []
     for iter_idx in range(1, args.train_max_iter):
         if iter_idx > 3:
             t0 = time.time()
         net.train()
         pred_ratings = net(dataset.train_enc_graph, dataset.train_dec_graph,
-                           dataset.user_feature, dataset.movie_feature)
+                           dataset.user_feature, dataset.movie_feature, iter_f_e, iter_f_d)
         loss = rating_loss_net(pred_ratings, train_gt_labels).mean()
         count_loss += loss.item()
+        t = time.time()
         optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(net.parameters(), args.train_grad_clip)
         optimizer.step()
+        iter_b.append(time.time() - t)
 
         if iter_idx > 3:
             dur.append(time.time() - t0)
+            if iter_idx % 100 == 0:
+                print("{}\t{}\t{}".format(np.mean(iter_f_e[3:]), np.mean(iter_f_d[3:]), np.mean(iter_b[3:])))
+                iter_f_e = []
+                iter_f_d = []
+                iter_b = []
 
         if iter_idx == 1:
             print("Total #Param of net: %d" % (torch_total_param_num(net)))
@@ -132,6 +148,7 @@ def train(args):
         rmse = ((real_pred_ratings - train_gt_ratings) ** 2).sum()
         count_rmse += rmse.item()
         count_num += pred_ratings.shape[0]
+        th.cuda.empty_cache()
 
         if iter_idx % args.train_log_interval == 0:
             train_loss_logger.log(iter=iter_idx,
@@ -146,6 +163,7 @@ def train(args):
             valid_rmse = evaluate(args=args, net=net, dataset=dataset, segment='valid')
             valid_loss_logger.log(iter = iter_idx, rmse = valid_rmse)
             logging_str += ',\tVal RMSE={:.4f}'.format(valid_rmse)
+            th.cuda.empty_cache()
 
             if valid_rmse < best_valid_rmse:
                 best_valid_rmse = valid_rmse
@@ -169,6 +187,7 @@ def train(args):
                         for p in optimizer.param_groups:
                             p['lr'] = learning_rate
                         no_better_valid = 0
+            th.cuda.empty_cache()
         if iter_idx  % args.train_log_interval == 0:
             print(logging_str)
     print('Best Iter Idx={}, Best Valid RMSE={:.4f}, Best Test RMSE={:.4f}'.format(
