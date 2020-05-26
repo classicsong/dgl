@@ -81,7 +81,7 @@ class LinkPredict(nn.Module):
 
         return h
 
-    def forward(self, p_blocks, p_feats, n_blocks=None, n_feats=None, p_g=None, n_g=None):
+    def forward(self, p_blocks, p_feats, n_blocks=None, n_feats=None, p_g=None, reverse_idx=None):
         p_h = p_feats
         for layer, block in zip(self.layers, p_blocks):
             block = block.to(self.device)
@@ -100,9 +100,10 @@ class LinkPredict(nn.Module):
         p_tail_emb = p_h[tail]
         rids = p_g.edata['etype']
         r_emb = self.w_relation[rids]
-        head, tail = n_g.all_edges()
-        n_head_emb = n_h[head]
-        n_tail_emb = n_h[tail]
+        neg_emb = n_h[reverse_idx]
+        num_neg = neg_emb.shape[0]
+        n_head_emb = neg_emb[:num_neg//2]
+        n_tail_emb = neg_emb[num_neg//2:]
         return (p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb, p_h, n_h)
 
 def regularization_loss(p_emb, n_emb, r_emb):
@@ -197,7 +198,7 @@ class LinkRankSampler:
         is_train=True, keep_pos_edges=False):
         self.g = g
         self.neg_edges = neg_edges
-        self.num_edges = num_edges
+        self.num_entities = g.number_of_nodes()
         self.num_neg = num_neg
         self.fanouts = fanouts
         self.is_train = is_train
@@ -207,29 +208,24 @@ class LinkRankSampler:
         pseeds = th.tensor(seeds).long()
         bsize = pseeds.shape[0]
         if self.num_neg is not None:
-            nseeds = th.randint(self.num_edges, (self.num_neg,))
-            nseeds = self.neg_edges[nseeds]
+            nseeds = th.randint(self.num_entities, (self.num_neg * 2,))
         else:
-            nseeds = th.randint(self.num_edges, (bsize,))
-            nseeds = self.neg_edges[nseeds]
+            nseeds = th.randint(self.num_entities, (bsize * 2,))
+        nseeds, reverse_idx = th.unique(nseeds, return_inverse=True)
 
         g = self.g
         fanouts = self.fanouts
         assert len(g.canonical_etypes) == 1
         p_subg = g.edge_subgraph({g.canonical_etypes[0] : pseeds})
-        n_subg = g.edge_subgraph({g.canonical_etypes[0] : nseeds})
 
         p_g = dgl.compact_graphs(p_subg)
-        n_g = dgl.compact_graphs(n_subg)
         p_g.edata['etype'] = g.edata['etype'][p_subg.edata[dgl.EID]]
-
         pg_seed = p_subg.ndata[dgl.NID][p_g.ndata[dgl.NID]]
-        ng_seed = n_subg.ndata[dgl.NID][n_g.ndata[dgl.NID]]
 
         p_blocks = []
         n_blocks = []
         p_curr = pg_seed
-        n_curr = ng_seed
+        n_curr = nseeds
         for i, fanout in enumerate(fanouts):
             if fanout is None:
                 p_frontier = dgl.in_subgraph(g, p_curr)
@@ -262,7 +258,7 @@ class LinkRankSampler:
             p_blocks.insert(0, p_block)
             n_blocks.insert(0, n_block)
 
-        return (bsize, p_g, n_g, p_blocks, n_blocks)
+        return (bsize, p_g, reverse_idx, p_blocks, n_blocks)
 
 def evaluate(embed_layer, model, dataloader, node_feats, bsize, neg_cnt, queue):
     logs = []
@@ -271,7 +267,7 @@ def evaluate(embed_layer, model, dataloader, node_feats, bsize, neg_cnt, queue):
 
     with th.no_grad():
         for i, sample_data in enumerate(dataloader):
-            bsize, p_g, n_g, p_blocks, n_blocks = sample_data
+            bsize, p_g, reverse_idx, p_blocks, n_blocks = sample_data
             p_feats = embed_layer(p_blocks[0].srcdata[dgl.NID],
                                 p_blocks[0].srcdata['ntype'],
                                 node_feats)
@@ -279,7 +275,7 @@ def evaluate(embed_layer, model, dataloader, node_feats, bsize, neg_cnt, queue):
                                 n_blocks[0].srcdata['ntype'],
                                 node_feats)
             p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb, _, _ = \
-                model(p_blocks, p_feats, n_blocks, n_feats, p_g, n_g)
+                model(p_blocks, p_feats, n_blocks, n_feats, p_g, reverse_idx)
 
             pos_score = calc_pos_score(p_head_emb, p_tail_emb, r_emb).view(-1,1)
             t_neg_score = calc_neg_tail_score(p_head_emb,
@@ -483,7 +479,6 @@ def fullgraph_eval(g, embed_layer, model, device, node_feats, dim_size,
                             false_neg_comp[idx_ec] = -th.abs(pos_score[idx])
                     h_neg_score[idx][loc] += false_neg_comp
 
-
             pos_score = pos_score.view(-1,1)
             # perturb object
             scores = th.cat([pos_score, h_neg_score], dim=1)
@@ -640,7 +635,7 @@ def run(proc_id, n_gpus, args, devices, dataset, pos_seeds, neg_seeds, queue=Non
         if epoch > 1:
             t0 = time.time()
         for i, sample_data in enumerate(dataloader):
-            bsize, p_g, n_g, p_blocks, n_blocks = sample_data
+            bsize, p_g, reverse_idx, p_blocks, n_blocks = sample_data
             p_feats = embed_layer(p_blocks[0].srcdata[dgl.NID].to(dev_id),
                                   p_blocks[0].srcdata['ntype'].to(dev_id),
                                   node_feats)
@@ -649,11 +644,11 @@ def run(proc_id, n_gpus, args, devices, dataset, pos_seeds, neg_seeds, queue=Non
                                   node_feats)
 
             p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb, p_emb, n_emb = \
-                model(p_blocks, p_feats, n_blocks, n_feats, p_g, n_g)
+                model(p_blocks, p_feats, n_blocks, n_feats, p_g, reverse_idx)
 
-            n_shuffle_seed = th.randperm(n_head_emb.shape[0])
-            n_head_emb = n_head_emb[n_shuffle_seed]
-            n_tail_emb = n_tail_emb[n_shuffle_seed]
+            #n_shuffle_seed = th.randperm(n_head_emb.shape[0])
+            #n_head_emb = n_head_emb[n_shuffle_seed]
+            #n_tail_emb = n_tail_emb[n_shuffle_seed]
 
             pred_loss = get_loss(p_head_emb,
                                 p_tail_emb,
