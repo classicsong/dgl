@@ -57,7 +57,8 @@ class LinkPredict(nn.Module):
         self.regularization_coef = regularization_coef
 
         self.w_relation = nn.Parameter(th.Tensor(num_rels, h_dim).to(self.device))
-        nn.init.xavier_uniform_(self.w_relation) 
+        nn.init.xavier_uniform_(self.w_relation,
+                                gain=nn.init.calculate_gain('relu'))
         
         self.layers = nn.ModuleList()
         # i2h
@@ -102,13 +103,11 @@ class LinkPredict(nn.Module):
         head, tail = n_g.all_edges()
         n_head_emb = n_h[head]
         n_tail_emb = n_h[tail]
-        return (p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb)
+        return (p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb, p_h, n_h)
 
-def regularization_loss(h_emb, t_emb, r_emb, nh_emb, nt_emb):
-    return th.mean(h_emb.pow(2)) + \
-            th.mean(t_emb.pow(2)) + \
-            th.mean(nh_emb.pow(2)) + \
-            th.mean(nt_emb.pow(2)) + \
+def regularization_loss(p_emb, n_emb, r_emb):
+    return th.mean(p_emb.pow(2)) + \
+            th.mean(n_emb.pow(2)) + \
             th.mean(r_emb.pow(2))
 
 def calc_pos_score(h_emb, t_emb, r_emb):
@@ -142,7 +141,7 @@ def calc_neg_head_score(heads, tails, r_emb, num_chunks, chunk_size, neg_sample_
     return th.bmm(tmp, heads)
 
 def get_loss(h_emb, t_emb, nh_emb, nt_emb, r_emb,
-    num_chunks, chunk_size, neg_sample_size, regularization_coef):
+    num_chunks, chunk_size, neg_sample_size):
     # triplets is a list of data samples (positive and negative)
     # each row in the triplets is a 3-tuple of (source, relation, destination)
     pos_score = calc_pos_score(h_emb, t_emb, r_emb).view(-1, 1)
@@ -164,11 +163,7 @@ def get_loss(h_emb, t_emb, nh_emb, nt_emb, r_emb,
     #t_neg_score = t_neg_score.mean()
     #predict_loss = -(2 * pos_score + h_neg_score + t_neg_score) / 2
 
-    reg_loss = regularization_loss(h_emb, t_emb, r_emb, nh_emb, nt_emb)
-
-    print("pos {}, reg_loss {}".format(predict_loss.detach(),
-                                       regularization_coef * reg_loss.detach()))
-    return predict_loss + regularization_coef * reg_loss
+    return predict_loss
 
 class NodeSampler:
     def __init__(self, g, fanouts):
@@ -283,7 +278,7 @@ def evaluate(embed_layer, model, dataloader, node_feats, bsize, neg_cnt, queue):
             n_feats = embed_layer(n_blocks[0].srcdata[dgl.NID],
                                 n_blocks[0].srcdata['ntype'],
                                 node_feats)
-            p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb = \
+            p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb, _, _ = \
                 model(p_blocks, p_feats, n_blocks, n_feats, p_g, n_g)
 
             pos_score = calc_pos_score(p_head_emb, p_tail_emb, r_emb).view(-1,1)
@@ -302,8 +297,25 @@ def evaluate(embed_layer, model, dataloader, node_feats, bsize, neg_cnt, queue):
             #pos_scores = F.logsigmoid(pos_score).reshape(bsize, -1)
             #t_neg_score = F.logsigmoid(t_neg_score).reshape(bsize, neg_cnt)
             #h_neg_score = F.logsigmoid(h_neg_score).reshape(bsize, neg_cnt)
-            neg_scores = th.cat([h_neg_score, t_neg_score], dim=1)
-            scores = th.cat([pos_score, neg_scores], dim=1)
+            # perturb object
+            scores = th.cat([pos_score, h_neg_score], dim=1)
+            scores = th.sigmoid(scores)
+            _, indices = th.sort(scores, dim=1, descending=True)
+            #rankings = th.sum(neg_scores >= pos_scores, dim=1) + 1
+            indices = th.nonzero(indices == 0)
+            rankings = indices[:, 1].view(-1) + 1
+            rankings = rankings.cpu().detach().numpy()
+            for ranking in rankings:
+                logs.append({
+                    'MRR': 1.0 / ranking,
+                    'MR': float(ranking),
+                    'HITS@1': 1.0 if ranking <= 1 else 0.0,
+                    'HITS@3': 1.0 if ranking <= 3 else 0.0,
+                    'HITS@10': 1.0 if ranking <= 10 else 0.0
+                })
+
+            # perturb subject
+            scores = th.cat([pos_score, t_neg_score], dim=1)
             scores = th.sigmoid(scores)
             _, indices = th.sort(scores, dim=1, descending=True)
             #rankings = th.sum(neg_scores >= pos_scores, dim=1) + 1
@@ -471,13 +483,27 @@ def fullgraph_eval(g, embed_layer, model, device, node_feats, dim_size,
                             false_neg_comp[idx_ec] = -th.abs(pos_score[idx])
                     h_neg_score[idx][loc] += false_neg_comp
 
-            neg_score = th.cat([h_neg_score, t_neg_score], dim=1)
-            pos_score = pos_score.view(-1,1)
 
-            print(pos_score.shape)
-            print(neg_score.shape)
-            #rankings = th.sum(neg_score >= pos_score, dim=1) + 1
-            scores = th.cat([pos_score, neg_score], dim=1)
+            pos_score = pos_score.view(-1,1)
+            # perturb object
+            scores = th.cat([pos_score, h_neg_score], dim=1)
+            scores = th.sigmoid(scores)
+            _, indices = th.sort(scores, dim=1, descending=True)
+            #rankings = th.sum(neg_scores >= pos_scores, dim=1) + 1
+            indices = th.nonzero(indices == 0)
+            rankings = indices[:, 1].view(-1) + 1
+            rankings = rankings.cpu().detach().numpy()
+            for ranking in rankings:
+                logs.append({
+                    'MRR': 1.0 / ranking,
+                    'MR': float(ranking),
+                    'HITS@1': 1.0 if ranking <= 1 else 0.0,
+                    'HITS@3': 1.0 if ranking <= 3 else 0.0,
+                    'HITS@10': 1.0 if ranking <= 10 else 0.0
+                })
+
+            # perturb subject
+            scores = th.cat([pos_score, t_neg_score], dim=1)
             scores = th.sigmoid(scores)
             _, indices = th.sort(scores, dim=1, descending=True)
             #rankings = th.sum(neg_scores >= pos_scores, dim=1) + 1
@@ -622,22 +648,29 @@ def run(proc_id, n_gpus, args, devices, dataset, pos_seeds, neg_seeds, queue=Non
                                   n_blocks[0].srcdata['ntype'].to(dev_id),
                                   node_feats)
 
-            p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb = \
+            p_head_emb, p_tail_emb, r_emb, n_head_emb, n_tail_emb, p_emb, n_emb = \
                 model(p_blocks, p_feats, n_blocks, n_feats, p_g, n_g)
 
             n_shuffle_seed = th.randperm(n_head_emb.shape[0])
             n_head_emb = n_head_emb[n_shuffle_seed]
             n_tail_emb = n_tail_emb[n_shuffle_seed]
 
-            loss = get_loss(p_head_emb,
-                            p_tail_emb,
-                            n_head_emb,
-                            n_tail_emb,
-                            r_emb,
-                            int(batch_size / chunk_size),
-                            chunk_size,
-                            chunk_size,
-                            args.regularization_coef)
+            pred_loss = get_loss(p_head_emb,
+                                p_tail_emb,
+                                n_head_emb,
+                                n_tail_emb,
+                                r_emb,
+                                int(batch_size / chunk_size),
+                                chunk_size,
+                                chunk_size)
+            if queue is None:
+                reg_loss = regularization_loss(p_emb, n_emb, model.w_relation)
+            else:
+                reg_loss = regularization_loss(p_emb, n_emb, model.module.w_relation)
+            loss = pred_loss + args.regularization_coef * reg_loss
+
+            print("pos {}, reg_loss {}".format(pred_loss.detach(),
+                                               args.regularization_coef * reg_loss.detach()))
             optimizer.zero_grad()
             loss.backward()
             th.nn.utils.clip_grad_norm_(model.parameters(), args.grad_norm)
@@ -731,6 +764,10 @@ def main(args, devices):
         valid_data = drkg_dataset.valid
         test_data = drkg_dataset.test
         node_types = drkg_dataset.node_types
+
+        print("Train set: {}".format(len(train_data)))
+        print("Valid set: {}".format(len(valid_data)))
+        print("Test set: {}".format(len(test_data)))
 
         train_g = build_multi_ntype_heterograph_in_homogeneous_from_triplets(num_nodes, num_rels, node_types, [train_data])
         valid_g = build_multi_ntype_heterograph_in_homogeneous_from_triplets(num_nodes, num_rels, node_types, [train_data, valid_data])
@@ -864,12 +901,13 @@ def main(args, devices):
                                            else num_train_seeds]
             proc_valid_seeds = valid_seeds[proc_id * vseeds_per_proc :
                                            (proc_id + 1) * vseeds_per_proc \
-                                           if (proc_id + 1) * vseeds_per_proc < num_train_seeds \
+                                           if (proc_id + 1) * vseeds_per_proc < num_valid_seeds \
                                            else num_valid_seeds]
             proc_test_seeds = test_seeds[proc_id * tstseeds_per_proc :
                                          (proc_id + 1) * tstseeds_per_proc \
-                                         if (proc_id + 1) * tstseeds_per_proc < num_train_seeds \
+                                         if (proc_id + 1) * tstseeds_per_proc < num_test_seeds \
                                          else num_test_seeds]
+
             p = mp.Process(target=run, args=(proc_id, n_gpus, args, devices,
                            (train_g, valid_g, test_g, num_rels, edge_rels),
                            (proc_train_seeds, proc_valid_seeds, proc_test_seeds),

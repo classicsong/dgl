@@ -148,8 +148,6 @@ class RelGraphConvLayer(nn.Module):
             # add block diagonal weights
             self.submat_in = in_feat // self.num_bases
             self.submat_out = out_feat // self.num_bases
-            print(self.submat_in)
-            print(self.submat_out)
             # assuming in_feat and out_feat are both divisible by num_bases
             self.weight = nn.Parameter(th.Tensor(
                 self.num_rels, self.num_bases * self.submat_in * self.submat_out))
@@ -215,8 +213,9 @@ class RelGraphConvLayer(nn.Module):
             for etype in etypes:
                 loc = edges.data['etype'] == etype
                 w = self.weight[etype].view(self.num_bases, self.submat_in, self.submat_out)
-                src = edges.src['h'][loc].view(self.num_bases, -1, self.submat_in)
-                sub_msg = th.matmul(src, w).view(-1, self.out_feat)
+                src = edges.src['h'][loc].view(-1, self.num_bases, self.submat_in)
+                sub_msg = th.einsum('abc,bcd->abd', src, w)
+                sub_msg = sub_msg.reshape(-1, self.out_feat)
                 msg[loc] = sub_msg
         else:
             # put W_r into edges then do msg @ W_r
@@ -312,7 +311,6 @@ class RelGraphEmbedLayer(nn.Module):
         # create weight embeddings for each node for each relation
         self.embeds = nn.ParameterDict()
         self.num_of_ntype = num_of_ntype
-        self.idmap = th.empty(num_nodes).long()
 
         for ntype in range(num_of_ntype):
             if input_size[ntype] is not None:
@@ -321,13 +319,9 @@ class RelGraphEmbedLayer(nn.Module):
                 embed = nn.Parameter(th.Tensor(input_emb_size, self.embed_size))
                 nn.init.xavier_uniform_(embed, gain=nn.init.calculate_gain('relu'))
                 self.embeds[str(ntype)] = embed
-            else:
-                loc = node_tids == ntype
-                num_subnodes = node_tids[loc].shape[0]
-                self.idmap[loc] = th.arange(num_subnodes)
-                none_embed = nn.Parameter(th.Tensor(num_subnodes, self.embed_size))
-                nn.init.xavier_uniform_(none_embed, gain=nn.init.calculate_gain('relu'))
-                self.embeds[str(ntype)] = none_embed
+        
+        self.node_embeds = th.nn.Embedding(node_tids.shape[0], self.embed_size)
+
 
     def forward(self, node_ids, node_tids, features):
         """Forward computation
@@ -349,20 +343,12 @@ class RelGraphEmbedLayer(nn.Module):
         tensor
             embeddings as the input of the next layer
         """
-        #embeds = self.embeds[str(-1)]
-        # first we get embeddings for transductive nodes
-        #tsd_idx = node_ids < embeds.shape[0]
-        #tsd_ids = node_ids[tsd_idx]
-        #embeds = embeds[tsd_ids]
-        embeds = th.empty(node_ids.shape[0], self.embed_size, device=self.dev_id)
+        tsd_idx = node_ids < self.num_nodes
+        tsd_ids = node_ids[tsd_idx]
+        embeds = self.node_embeds(tsd_ids)
         for ntype in range(self.num_of_ntype):
             if features[ntype] is not None:
                 loc = node_tids == ntype
                 embeds[loc] = features[ntype] @ self.embeds[str(ntype)]
-            else:
-                loc = node_tids == ntype
-                sub_nodes = node_ids[loc]
-                if sub_nodes.shape[0] > 0:
-                    embeds[loc] = self.embeds[str(ntype)][self.idmap[sub_nodes]]
 
         return embeds.to(self.dev_id)
