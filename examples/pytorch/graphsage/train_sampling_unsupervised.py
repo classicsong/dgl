@@ -98,6 +98,35 @@ def load_subtensor(g, input_nodes, device):
     batch_inputs = g.ndata['features'][input_nodes].to(device)
     return batch_inputs
 
+class GPUPrefetcher():
+    def __init__(self, loader, g):
+        self.loader = iter(loader)
+        self.stream = th.cuda.Stream()
+        self.g = g
+        self.preload()
+
+    def preload(self):
+        try:
+            pos_graph, neg_graph, blocks = next(self.loader)
+        except StopIteration:
+            self.next_data = None
+            return
+
+        with th.cuda.stream(self.stream):
+            input_nodes = blocks[0].srcdata[dgl.NID]
+            batch_inputs = self.g.ndata['features'][input_nodes].cuda(non_blocking=True)
+            self.next_data = (pos_graph, neg_graph, blocks, batch_inputs)
+
+    def __next__(self):
+        th.cuda.current_stream().wait_stream(self.stream)
+        data = self.next_data
+        self.preload()
+
+        return data
+
+    def __iter__(self):
+        return self
+
 class SAGE(nn.Module):
     def __init__(self,
                  in_feats,
@@ -270,6 +299,11 @@ def run(proc_id, n_gpus, args, devices, data):
         pin_memory=True,
         num_workers=args.num_workers)
 
+    if n_gpus > 0:
+        prefetcher = GPUPrefetcher(dataloader, g)
+    else:
+        prefetcher = dataloader
+
     # Define model and optimizer
     model = SAGE(in_feats, args.num_hidden, args.num_hidden, args.num_layers, F.relu, args.dropout)
     model = model.to(device)
@@ -294,11 +328,11 @@ def run(proc_id, n_gpus, args, devices, data):
         # blocks.
 
         tic_step = time.time()
-        for step, (pos_graph, neg_graph, blocks) in enumerate(dataloader):
+        for step, (pos_graph, neg_graph, blocks, batch_inputs) in enumerate(prefetcher):
             # The nodes for input lies at the LHS side of the first block.
             # The nodes for output lies at the RHS side of the last block.
-            input_nodes = blocks[0].srcdata[dgl.NID]
-            batch_inputs = load_subtensor(g, input_nodes, device)
+            #input_nodes = blocks[0].srcdata[dgl.NID]
+            #batch_inputs = load_subtensor(g, input_nodes, device)
             d_step = time.time()
 
             # Compute loss and prediction
@@ -321,6 +355,7 @@ def run(proc_id, n_gpus, args, devices, data):
                     proc_id, epoch, step, loss.item(), np.mean(iter_pos[3:]), np.mean(iter_neg[3:]), np.mean(iter_d[3:]), np.mean(iter_t[3:]), gpu_mem_alloc))
             tic_step = time.time()
 
+            """
             if step % args.eval_every == 0 and proc_id == 0:
                 eval_acc, test_acc = evaluate(model, g, g.ndata['features'], labels, train_nid, val_nid, test_nid, args.batch_size, device)
                 print('Eval Acc {:.4f} Test Acc {:.4f}'.format(eval_acc, test_acc))
@@ -328,6 +363,7 @@ def run(proc_id, n_gpus, args, devices, data):
                     best_eval_acc = eval_acc
                     best_test_acc = test_acc
                 print('Best Eval Acc {:.4f} Test Acc {:.4f}'.format(best_eval_acc, best_test_acc))
+            """
         if n_gpus > 1:
             th.distributed.barrier()
     print('Avg epoch time: {}'.format(avg / (epoch - 4)))
