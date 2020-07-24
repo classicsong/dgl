@@ -36,11 +36,14 @@ class NeighborSampler(object):
         self.sample_neighbors = sample_neighbors
         self.neg_sampler = NegativeSampler(g, neg_nseeds)
         self.num_negs = num_negs
+        self.pb = self.g.get_partition_book()
 
     def sample_blocks(self, seed_edges):
         n_edges = len(seed_edges)
         seed_edges = th.LongTensor(np.asarray(seed_edges))
         heads, tails = self.g.find_edges(seed_edges)
+        edge_p = self.pb.eid2partid(seed_edges)
+        node_p = self.pb.nid2partid(th.cat([heads, tails], dim=0))
 
         neg_tails = self.neg_sampler(self.num_negs * n_edges)
         neg_heads = heads.view(-1, 1).expand(n_edges, self.num_negs).flatten()
@@ -75,7 +78,7 @@ class NeighborSampler(object):
             blocks.insert(0, block)
 
         # Pre-generate CSR format that it can be used in training directly
-        return pos_graph, neg_graph, blocks
+        return pos_graph, neg_graph, (blocks, edge_p, node_p)
 
 def load_subtensor(g, input_nodes, device):
     """
@@ -182,6 +185,12 @@ def run(args, device, data):
         backward_t = []
         update_t = []
         iter_tput = []
+        e_log = []
+        el_log = []
+        n_log = []
+        nl_log = []
+        in_log = []
+        inl_log = []
 
         start = time.time()
         # Loop over the dataloader to sample the computation dependency graph as a list of
@@ -189,10 +198,21 @@ def run(args, device, data):
         for step, (pos_graph, neg_graph, blocks) in enumerate(dataloader):
             tic_step = time.time()
             sample_t.append(tic_step - start)
+            blocks, edge_p, node_p = blocks
+            p_id = g.get_partition_book().partid
+            l_e = th.nonzero(edge_p == p_id).shape[0]
+            l_n = th.nonzero(node_p == p_id).shape[0]
 
             # The nodes for input lies at the LHS side of the first block.
             # The nodes for output lies at the RHS side of the last block.
             input_nodes = blocks[0].srcdata[dgl.NID]
+            l_i = th.nonzero(g.get_partition_book().nid2partid(input_nodes) == p_id).shape[0]
+            e_log.append(edge_p.shape[0])
+            el_log.append(l_e)
+            n_log.append(node_p.shape[0])
+            nl_log.append(l_n)
+            in_log.append(input_nodes.shape[0])
+            inl_log.append(l_i)
 
             # Load the input features as well as output labels
             batch_inputs = load_subtensor(g, input_nodes, device)
@@ -220,6 +240,8 @@ def run(args, device, data):
             step_time.append(step_t)
             iter_tput.append(pos_edges / step_t)
             num_seeds += pos_edges
+            print('[{}] Epoch {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d}'.format(
+                g.rank(), epoch, e_log[step], el_log[step], n_log[step], nl_log[step], in_log[step], inl_log[step]))
             if step % args.log_every == 0:
                 print('[{}] Epoch {:05d} | Step {:05d} | Loss {:.4f} | Speed (samples/sec) {:.4f} | time {:.3f} s' \
                         '| sample {:.3f} | copy {:.3f} | forward {:.3f} | backward {:.3f} | update {:.3f}'.format(
