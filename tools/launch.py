@@ -47,6 +47,7 @@ def submit_jobs(args, udf_command):
         cmd = cmd + ' ' + udf_command
         cmd = 'cd ' + str(args.workspace) + '; ' + cmd
         execute_remote(cmd, ip, thread_list)
+        print(cmd)
     # launch client tasks
     client_cmd = 'DGL_DIST_MODE="distributed" DGL_ROLE=client'
     client_cmd = client_cmd + ' ' + 'DGL_NUM_CLIENT=' + str(args.num_client)
@@ -67,10 +68,11 @@ def submit_jobs(args, udf_command):
     for node_id, host in enumerate(hosts):
         ip, _ = host
         new_torch_cmd = torch_cmd.replace('node_rank=0', 'node_rank='+str(node_id))
-        new_udf_command = udf_command.replace('python3', 'python3 ' + new_torch_cmd)
+        new_udf_command = udf_command.replace('python python', 'python python ' + new_torch_cmd)
         cmd = client_cmd + ' ' + new_udf_command
         cmd = 'cd ' + str(args.workspace) + '; ' + cmd
         execute_remote(cmd, ip, thread_list)
+        print(cmd)
 
     for thread in thread_list:
         thread.join()

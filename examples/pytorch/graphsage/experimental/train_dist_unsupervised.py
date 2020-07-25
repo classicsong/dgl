@@ -240,18 +240,22 @@ def run(args, device, data):
             step_time.append(step_t)
             iter_tput.append(pos_edges / step_t)
             num_seeds += pos_edges
-            print('[{}] Epoch {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d}'.format(
-                g.rank(), epoch, e_log[step], el_log[step], n_log[step], nl_log[step], in_log[step], inl_log[step]))
             if step % args.log_every == 0:
                 print('[{}] Epoch {:05d} | Step {:05d} | Loss {:.4f} | Speed (samples/sec) {:.4f} | time {:.3f} s' \
                         '| sample {:.3f} | copy {:.3f} | forward {:.3f} | backward {:.3f} | update {:.3f}'.format(
                     g.rank(), epoch, step, loss.item(), np.mean(iter_tput[3:]), np.sum(step_time[-args.log_every:]),
                     np.sum(sample_t[-args.log_every:]), np.sum(feat_copy_t[-args.log_every:]), np.sum(forward_t[-args.log_every:]),
                     np.sum(backward_t[-args.log_every:]), np.sum(update_t[-args.log_every:])))
+                print('[{}] Epoch {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d}'.format(
+                    g.rank(), epoch, np.sum(e_log[-args.log_every:]), np.sum(el_log[-args.log_every:]), np.sum(n_log[-args.log_every:]),
+                    np.sum(nl_log[-args.log_every:]), np.sum(in_log[-args.log_every:]), np.sum(inl_log[-args.log_every:])))
+ 
             start = time.time()
 
         print('[{}]Epoch Time(s): {:.4f}, sample: {:.4f}, data copy: {:.4f}, forward: {:.4f}, backward: {:.4f}, update: {:.4f}, #seeds: {}, #inputs: {}'.format(
             g.rank(), np.sum(step_time), np.sum(sample_t), np.sum(feat_copy_t), np.sum(forward_t), np.sum(backward_t), np.sum(update_t), num_seeds, num_inputs))
+        print('[{}] {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d}'.format(
+            np.sum(e_log), np.sum(el_log), np.sum(n_log), np.sum(nl_log), np.sum(in_log), np.sum(inl_log)))
         epoch += 1
 
     if not args.standalone:
