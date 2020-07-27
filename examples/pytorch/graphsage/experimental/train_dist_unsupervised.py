@@ -40,13 +40,16 @@ class NeighborSampler(object):
 
     def sample_blocks(self, seed_edges):
         n_edges = len(seed_edges)
+        start = time.time()
         seed_edges = th.LongTensor(np.asarray(seed_edges))
         heads, tails = self.g.find_edges(seed_edges)
-        edge_p = self.pb.eid2partid(seed_edges)
-        node_p = self.pb.nid2partid(th.cat([heads, tails], dim=0))
+        find_t = time.time()
+        #edge_p = self.pb.eid2partid(seed_edges)
+        #node_p = self.pb.nid2partid(th.cat([heads, tails], dim=0))
 
         neg_tails = self.neg_sampler(self.num_negs * n_edges)
         neg_heads = heads.view(-1, 1).expand(n_edges, self.num_negs).flatten()
+        neg_t = time.time()
 
         # Maintain the correspondence between heads, tails and negative tails as two
         # graphs.
@@ -59,16 +62,23 @@ class NeighborSampler(object):
         pos_graph, neg_graph = dgl.compact_graphs([pos_graph, neg_graph])
 
         seeds = pos_graph.ndata[dgl.NID]
+        compact_t = time.time()
         blocks = []
+        remove_e = []
+        neighbor_sp = []
         for fanout in self.fanouts:
             # For each seed node, sample ``fanout`` neighbors.
+            neighbor_s = time.time()
             frontier = self.sample_neighbors(self.g, seeds, fanout, replace=True)
             # Remove all edges between heads and tails, as well as heads and neg_tails.
+            remove_e_s = time.time()
             _, _, edge_ids = frontier.edge_ids(
                 th.cat([heads, tails, neg_heads, neg_tails]),
                 th.cat([tails, heads, neg_tails, neg_heads]),
                 return_uv=True)
             frontier = dgl.remove_edges(frontier, edge_ids)
+            neighbor_sp.append(remove_e_s - neighbor_s)
+            remove_e.append(time.time() - remove_e_s)
             # Then we compact the frontier into a bipartite graph for message passing.
             block = dgl.to_block(frontier, seeds)
 
@@ -76,9 +86,9 @@ class NeighborSampler(object):
             seeds = block.srcdata[dgl.NID]
 
             blocks.insert(0, block)
-
+        fin = time.time()
         # Pre-generate CSR format that it can be used in training directly
-        return pos_graph, neg_graph, (blocks, edge_p, node_p)
+        return pos_graph, neg_graph, (blocks, find_t - start, neg_t - find_t, compact_t - neg_t, fin - compact_t, np.sum(neighbor_sp), np.sum(remove_e))
 
 def load_subtensor(g, input_nodes, device):
     """
@@ -185,12 +195,18 @@ def run(args, device, data):
         backward_t = []
         update_t = []
         iter_tput = []
-        e_log = []
-        el_log = []
-        n_log = []
-        nl_log = []
-        in_log = []
-        inl_log = []
+        #e_log = []
+        #el_log = []
+        #n_log = []
+        #nl_log = []
+        #in_log = []
+        #inl_log = []
+        find_edge_t = []
+        neg_t = []
+        compact_t = []
+        neighbor_t = []
+        neighbor_sp_t = []
+        remove_e = []
 
         start = time.time()
         # Loop over the dataloader to sample the computation dependency graph as a list of
@@ -198,21 +214,28 @@ def run(args, device, data):
         for step, (pos_graph, neg_graph, blocks) in enumerate(dataloader):
             tic_step = time.time()
             sample_t.append(tic_step - start)
-            blocks, edge_p, node_p = blocks
-            p_id = g.get_partition_book().partid
-            l_e = th.nonzero(edge_p == p_id).shape[0]
-            l_n = th.nonzero(node_p == p_id).shape[0]
+            blocks, find_e, neg_e, com_g, neigh, n_sp, re = blocks
+            #blocks, edge_p, node_p = blocks
+            #p_id = g.get_partition_book().partid
+            #l_e = th.nonzero(edge_p == p_id).shape[0]
+            #l_n = th.nonzero(node_p == p_id).shape[0]
 
             # The nodes for input lies at the LHS side of the first block.
             # The nodes for output lies at the RHS side of the last block.
             input_nodes = blocks[0].srcdata[dgl.NID]
-            l_i = th.nonzero(g.get_partition_book().nid2partid(input_nodes) == p_id).shape[0]
-            e_log.append(edge_p.shape[0])
-            el_log.append(l_e)
-            n_log.append(node_p.shape[0])
-            nl_log.append(l_n)
-            in_log.append(input_nodes.shape[0])
-            inl_log.append(l_i)
+            #l_i = th.nonzero(g.get_partition_book().nid2partid(input_nodes) == p_id).shape[0]
+            #e_log.append(edge_p.shape[0])
+            #el_log.append(l_e)
+            #n_log.append(node_p.shape[0])
+            #nl_log.append(l_n)
+            #in_log.append(input_nodes.shape[0])
+            #inl_log.append(l_i)
+            find_edge_t.append(find_e)
+            neg_t.append(neg_e)
+            compact_t.append(com_g)
+            neighbor_t.append(neigh)
+            neighbor_sp_t.append(n_sp)
+            remove_e.append(re)
 
             # Load the input features as well as output labels
             batch_inputs = load_subtensor(g, input_nodes, device)
@@ -246,16 +269,25 @@ def run(args, device, data):
                     g.rank(), epoch, step, loss.item(), np.mean(iter_tput[3:]), np.sum(step_time[-args.log_every:]),
                     np.sum(sample_t[-args.log_every:]), np.sum(feat_copy_t[-args.log_every:]), np.sum(forward_t[-args.log_every:]),
                     np.sum(backward_t[-args.log_every:]), np.sum(update_t[-args.log_every:])))
+                print('[{}] Epoch {:05d} | Step {:05d} | find_edge {:.3f} | neg_sample {:.3f} | compact {:.3f} | SP {:.3f} | neighbor sample {:.3f} | remove edge {:.3f}'.format(
+                    g.rank(), epoch, step, np.sum(find_edge_t[-args.log_every:]), np.sum(neg_t[-args.log_every:]),
+                    np.sum(compact_t[-args.log_every:]), np.sum(neighbor_t[-args.log_every:]),
+                    np.sum(neighbor_sp_t[-args.log_every:]), np.sum(remove_e[-args.log_every:])))
+                '''
                 print('[{}] Epoch {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d}'.format(
                     g.rank(), epoch, np.sum(e_log[-args.log_every:]), np.sum(el_log[-args.log_every:]), np.sum(n_log[-args.log_every:]),
                     np.sum(nl_log[-args.log_every:]), np.sum(in_log[-args.log_every:]), np.sum(inl_log[-args.log_every:])))
- 
+                '''
             start = time.time()
 
         print('[{}]Epoch Time(s): {:.4f}, sample: {:.4f}, data copy: {:.4f}, forward: {:.4f}, backward: {:.4f}, update: {:.4f}, #seeds: {}, #inputs: {}'.format(
             g.rank(), np.sum(step_time), np.sum(sample_t), np.sum(feat_copy_t), np.sum(forward_t), np.sum(backward_t), np.sum(update_t), num_seeds, num_inputs))
+        print('[{}] {:.3f} | {:.3f} | {:.3f} | {:.3f} | {:.3f} | {:.3f}'.format(
+            g.rank(), np.sum(find_edge_t), np.sum(neg_t), np.sum(compact_t), np.sum(neighbor_t), np.sum(neighbor_sp_t), np.sum(remove_e)))
+        '''
         print('[{}] {:05d} | {:05d} | {:05d} | {:05d} | {:05d} | {:05d}'.format(
             np.sum(e_log), np.sum(el_log), np.sum(n_log), np.sum(nl_log), np.sum(in_log), np.sum(inl_log)))
+        '''
         epoch += 1
 
     if not args.standalone:
