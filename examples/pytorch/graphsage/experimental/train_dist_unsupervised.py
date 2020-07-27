@@ -153,7 +153,7 @@ def run(args, device, data):
     # Unpack data
     train_eids, train_nids, in_feats, g = data
     # Create sampler
-    sampler = NeighborSampler(g, [int(fanout) for fanout in args.fan_out.split(',')], th.arange(g.number_of_nodes()), #train_nids,
+    sampler = NeighborSampler(g, [int(fanout) for fanout in args.fan_out.split(',')], train_nids,
                               dgl.distributed.sample_neighbors, args.num_negs)
 
     # Create PyTorch DataLoader for constructing blocks
