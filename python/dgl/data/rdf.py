@@ -943,7 +943,7 @@ class BGSDataset(RDFGraphDataset):
     term is CURRENT or DEPRECATED.
 
     BGS dataset statistics:
-    
+
     - Nodes: 94806
     - Edges: 672884 (including reverse edges)
     - Target Category: Lexicon/NamedRockUnit
@@ -1135,7 +1135,7 @@ class AMDataset(RDFGraphDataset):
     output graph.
 
     AM dataset statistics:
-    
+
     - Nodes: 881680
     - Edges: 5668682 (including reverse edges)
     - Target Category: proxy

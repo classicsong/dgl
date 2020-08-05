@@ -22,7 +22,7 @@ class BitcoinOTCDataset(DGLBuiltinDataset):
     Offical website: `<https://snap.stanford.edu/data/soc-sign-bitcoin-otc.html>`_
 
     Bitcoin OTC dataset statistics:
-    
+
     - Nodes: 5,881
     - Edges: 35,592
     - Range of edge weight: -10 to +10
