@@ -57,6 +57,7 @@ class DistTensor:
         self._shape = shape
         self._dtype = dtype
 
+        print(name)
         part_policies = self.kvstore.all_possible_part_policy
         # If a user doesn't provide a partition policy, we should find one based on
         # the input shape.
@@ -91,6 +92,7 @@ class DistTensor:
             DIST_TENSOR_ID += 1
         self._name = _get_data_name(name, part_policy.policy_str)
         self._persistent = persistent
+        print(self._persistent)
         if self._name not in exist_names:
             self.kvstore.init_data(self._name, shape, dtype, part_policy, init_func)
             self._owner = True

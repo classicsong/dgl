@@ -33,6 +33,7 @@ class DistEmbedding:
     '''
     def __init__(self, num_embeddings, embedding_dim, name=None,
                  init_func=None, part_policy=None):
+        print('test {}'.format(name))
         self._tensor = DistTensor((num_embeddings, embedding_dim), F.float32, name,
                                   init_func, part_policy)
         self._trace = []
@@ -127,6 +128,8 @@ class SparseAdagrad:
                 trace = emb._trace
                 if len(trace) == 1:
                     kvstore.push(name, trace[0][0], F.grad(trace[0][1]))
+                    print(trace[0][0])
+                    print(F.grad(trace[0][1]))
                 else:
                     # TODO(zhengda) we need to merge the gradients of the same embeddings first.
                     idxs = [t[0] for t in trace]
@@ -136,6 +139,9 @@ class SparseAdagrad:
                     # We'll need to scale them with the state sum on the kvstore server
                     # after we push them.
                     grads = F.cat(grads, 0)
+                    print(idxs)
+                    print(grads)
                     kvstore.push(name, idxs, grads)
+
                 # Clean up the old traces.
                 emb._trace = []
