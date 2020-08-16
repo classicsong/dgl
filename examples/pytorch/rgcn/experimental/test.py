@@ -39,7 +39,11 @@ if __name__ == '__main__':
     th_emb_optimizer = th.optim.SparseAdam(torch_embeds.parameters(), lr=0.01)
 
     idx = th.arange(10).long()
-    idx2 = th.zeros((10,)).long()
+    # have some embs
+    # idx2 = th.zeros((10,)).long()
+
+    # different embs
+    idx2 = th.arange(start=10, end=20).long()
     print(idx.shape)
     print(idx2.shape)
     idx = th.cat([idx, idx2])
