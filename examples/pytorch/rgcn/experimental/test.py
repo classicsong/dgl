@@ -38,13 +38,13 @@ if __name__ == '__main__':
     emb_optimizer = dgl.distributed.SparseAdagrad([dgl_emb], lr=0.01)
     th_emb_optimizer = th.optim.SparseAdam(torch_embeds.parameters(), lr=0.01)
 
-    idx = th.arange(100).long()
-    idx2 = th.zeros((100,)).long()
+    idx = th.arange(10).long()
+    idx2 = th.zeros((10,)).long()
     print(idx.shape)
     print(idx2.shape)
     idx = th.cat([idx, idx2])
 
-    truth = th.ones((200,)).long()
+    truth = th.ones((20,)).long()
 
     th_emb_optimizer.zero_grad()
     dgl_res = dgl_emb(idx)
