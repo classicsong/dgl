@@ -189,20 +189,34 @@ class DistEmbedLayer(nn.Module):
 
         return embeds
 
-def compute_acc(results, labels):
+def compute_acc(multilabel, results, labels):
     """
     Compute the accuracy of prediction given the labels.
     """
-    labels = labels.long()
-    return (results == labels).float().sum() / len(results)
+    if multilabel:
+        vals = th.zeros(results.shape)
+        for i in range(results.shape[0]):
+            vals[i] = labels[i][results[i]]
+        tp = th.sum(vals, dim=1)
+        ma = tp/results.shape[1]
 
-def evaluate(g, model, embed_layer, labels, eval_loader, test_loader, node_feats, global_val_nid, global_test_nid):
+        mr = tp/th.sum(labels, dim=1)
+        return (th.mean(ma), th.mean(mr))
+    else:
+        labels = labels.long()
+        return (results == labels).float().sum() / len(results)
+
+def evaluate(g, multilabel, model, embed_layer, labels, eval_loader, test_loader, node_feats, global_val_nid, global_test_nid):
     model.eval()
     embed_layer.eval()
     eval_logits = []
     eval_seeds = []
 
-    global_results = dgl.distributed.DistTensor(labels.shape, th.long, 'results', persistent=True)
+    topk = 3
+    if multilabel:
+        global_results = dgl.distributed.DistTensor((labels.shape[0], topk), th.long, 'results', persistent=True)
+    else:
+        global_results = dgl.distributed.DistTensor(labels.shape, th.long, 'results', persistent=True)
 
     with th.no_grad():
         for sample_data in tqdm.tqdm(eval_loader):
@@ -215,7 +229,11 @@ def evaluate(g, model, embed_layer, labels, eval_loader, test_loader, node_feats
             eval_seeds.append(seeds.cpu().detach())
     eval_logits = th.cat(eval_logits)
     eval_seeds = th.cat(eval_seeds)
-    global_results[eval_seeds] = eval_logits.argmax(dim=1)
+    if multilabel:
+        top_k, idx_k = th.topk(eval_logits, topk, dim=1)
+        global_results[eval_seeds] = idx_k
+    else:
+        global_results[eval_seeds] = eval_logits.argmax(dim=1)
 
     test_logits = []
     test_seeds = []
@@ -230,12 +248,17 @@ def evaluate(g, model, embed_layer, labels, eval_loader, test_loader, node_feats
             test_seeds.append(seeds.cpu().detach())
     test_logits = th.cat(test_logits)
     test_seeds = th.cat(test_seeds)
-    global_results[test_seeds] = test_logits.argmax(dim=1)
+
+    if multilabel:
+        top_k, idx_k = th.topk(test_logits, topk, dim=1)
+        global_results[test_seeds] = idx_k
+    else:
+        global_results[test_seeds] = test_logits.argmax(dim=1)
 
     g.barrier()
     if g.rank() == 0:
-        return compute_acc(global_results[global_val_nid], labels[global_val_nid]), \
-            compute_acc(global_results[global_test_nid], labels[global_test_nid])
+        return compute_acc(multilabel, global_results[global_val_nid], labels[global_val_nid]), \
+            compute_acc(multilabel, global_results[global_test_nid], labels[global_test_nid])
     else:
         return -1, -1
 
@@ -347,6 +370,7 @@ def run(args, device, data):
         if args.dgl_sparse:
             emb_optimizer = dgl.distributed.SparseAdagrad([embed_layer.node_embeds], lr=args.sparse_lr)
         else:
+            #emb_optimizer = th.optim.SparseAdam(embed_layer.node_embeds.parameters(), lr=args.sparse_lr)
             emb_optimizer = th.optim.SparseAdam(embed_layer.module.node_embeds.parameters(), lr=args.sparse_lr)
         optimizer = th.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.l2norm)
     else:
@@ -374,6 +398,8 @@ def run(args, device, data):
         update_t = []
         iter_tput = []
 
+        val_acc, test_acc = evaluate(g, args.multilabel, model, embed_layer, labels,                                                                                                                                                             valid_dataloader, test_dataloader, node_feats, global_val_nid, global_test_nid)
+        print('Initial val_micro_avg Prc {} Rcl {} and test_micro_avg Prc {} Rcl {}'.format(val_acc[0], val_acc[1], test_acc[0], test_acc[1]))
         start = time.time()
         # Loop over the dataloader to sample the computation dependency graph as a list of
         # blocks.
@@ -394,7 +420,11 @@ def run(args, device, data):
 
             # forward
             logits = model(blocks, feats)
-            loss = F.cross_entropy(logits, label)
+
+            if args.multilabel:
+                loss = F.binary_cross_entropy_with_logits(logits, label.float())
+            else:
+                loss = F.cross_entropy(logits, label)
             forward_end = time.time()
 
             # backward
@@ -429,9 +459,12 @@ def run(args, device, data):
 
         start = time.time()
         g.barrier()
-        val_acc, test_acc = evaluate(g, model, embed_layer, labels,
+        val_acc, test_acc = evaluate(g, args.multilabel, model, embed_layer, labels,
             valid_dataloader, test_dataloader, node_feats, global_val_nid, global_test_nid)
-        if val_acc >= 0:
+        if isinstance(val_acc, tuple):
+            print('val_micro_avg Prc {} Rcl {} and test_micro_avg Prc {} Rcl {}, time {:.4f}'.format(
+                val_acc[0], val_acc[1], test_acc[0], test_acc[1], time.time() - start))
+        elif val_acc >= 0:
             print('Val Acc {:.4f}, Test Acc {:.4f}, time: {:.4f}'.format(val_acc, test_acc,
                                                                          time.time() - start))
 
@@ -457,7 +490,10 @@ def main(args):
     labels = g.ndata['labels'][np.arange(g.number_of_nodes())]
     global_val_nid = th.LongTensor(np.nonzero(g.ndata['val_mask'][np.arange(g.number_of_nodes())])).squeeze()
     global_test_nid = th.LongTensor(np.nonzero(g.ndata['test_mask'][np.arange(g.number_of_nodes())])).squeeze()
-    n_classes = len(th.unique(labels[labels >= 0]))
+    if args.multilabel:
+        n_classes = labels.shape[1]
+    else:
+        n_classes = len(th.unique(labels[labels >= 0]))
     print(labels.shape)
     print('#classes:', n_classes)
 
@@ -533,6 +569,7 @@ if __name__ == '__main__':
             help='Use layer norm')
     parser.add_argument('--local_rank', type=int, help='get rank of the process')
     parser.add_argument('--standalone', action='store_true', help='run in the standalone mode')
+    parser.add_argument('--multilabel', action='store_true', help='whether it is a multi-label task')
     args = parser.parse_args()
 
     # if validation_fanout is None, set it with args.fanout
