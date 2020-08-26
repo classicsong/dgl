@@ -573,10 +573,11 @@ def parse_category_single_feat(category_inputs, norm=None):
         f[range(f.shape[0]),feat.squeeze()] = 1.
         feat = f
 
+    c_map = {i : c for i, c in enumerate(lb.classes_)}
     if norm == 'col':
-        return col_normalize(feat)
+        return col_normalize(feat), c_map
     else:
-        return feat
+        return feat, c_map
 
 def parse_category_multi_feat(category_inputs, norm=None):
     """ Parse categorical features and convert it into multi-hot encoding.
@@ -629,12 +630,13 @@ def parse_category_multi_feat(category_inputs, norm=None):
     mlb = MultiLabelBinarizer()
     feat = mlb.fit_transform(category_inputs)
 
+    c_map = {i : c for i, c in enumerate(mlb.classes_)}
     if norm == 'col':
-        return col_normalize(feat)
+        return col_normalize(feat), c_map
     if norm == 'row':
-        return row_normalize(feat)
+        return row_normalize(feat), c_map
     else:
-        return feat
+        return feat, c_map
 
 def parse_numerical_feat(numerical_inputs, norm=None):
     """ Parse numerical features.

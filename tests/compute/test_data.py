@@ -213,29 +213,36 @@ def test_parse_lang_feat():
 def test_parse_category_feat():
     # single-hot
     inputs = ['A', 'B']
-    feats = data.utils.parse_category_single_feat(inputs)
+    feats, _ = data.utils.parse_category_single_feat(inputs)
     assert np.allclose(np.array([[1.,0.],[0.,1.]]), feats)
 
     inputs = ['A', 'B', 'C', 'A']
-    feats = data.utils.parse_category_single_feat(inputs)
+    feats, _ = data.utils.parse_category_single_feat(inputs)
     assert np.allclose(np.array([[1.,0.,0.],[0.,1.,0.],[0.,0.,1.],[1.,0.,0.]]), feats)
     # col norm
-    feats = data.utils.parse_category_single_feat(inputs, norm='col')
+    feats, c_map = data.utils.parse_category_single_feat(inputs, norm='col')
     assert np.allclose(np.array([[.5,0.,0.],[0.,1.,0.],[0.,0.,1.],[.5,0.,0.]]), feats)
+    assert c_map[0] = 'A'
+    assert c_map[1] = 'B'
+    assert c_map[2] = 'C'
 
     # multi-hot
     inputs = [['A'], ['B']]
-    feats = data.utils.parse_category_multi_feat(inputs)
+    feats, _ = data.utils.parse_category_multi_feat(inputs)
     assert np.allclose(np.array([[1.,0.],[0.,1.]]), feats)
 
     inputs = [['A', 'B', 'C',], ['A', 'B'], ['C'], ['A']]
-    feats = data.utils.parse_category_multi_feat(inputs)
+    feats, c_map = data.utils.parse_category_multi_feat(inputs)
     assert np.allclose(np.array([[1.,1.,1.],[1.,1.,0.],[0.,0.,1.],[1.,0.,0.]]), feats)
+    assert c_map[0] = 'A'
+    assert c_map[1] = 'B'
+    assert c_map[2] = 'C'
+
     # row norm
-    feats = data.utils.parse_category_multi_feat(inputs, norm='row')
+    feats, _ = data.utils.parse_category_multi_feat(inputs, norm='row')
     assert np.allclose(np.array([[1./3.,1./3.,1./3.],[.5,.5,0.],[0.,0.,1.],[1.,0.,0.]]), feats)
     # col norm
-    feats = data.utils.parse_category_multi_feat(inputs, norm='col')
+    feats, _ = data.utils.parse_category_multi_feat(inputs, norm='col')
     assert np.allclose(np.array([[1./3.,0.5,0.5],[1./3.,0.5,0.],[0.,0.,0.5],[1./3.,0.,0.]]), feats)
 
 def test_parse_numerical_feat():

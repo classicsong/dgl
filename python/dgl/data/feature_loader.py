@@ -205,6 +205,10 @@ class NodeFeatureLoader(object):
             raise DGLError("addCategoryFeature requires at least 2 columns, " \
                 "one for nodes, others for category data")
 
+        if self._verbose:
+            print('NodeFeatureLoader.addCategoryFeature " \
+                  "from {} with {}'.format(self._input, cols))
+
         nodes = []
         features = []
         with open(self._input, newline='', encoding=self._encoding) as csvfile:
@@ -352,6 +356,10 @@ class NodeFeatureLoader(object):
             raise DGLError("addMultiCategoryFeature only accept two columns, " \
                 "one for nodes, another for category data")
 
+        if self._verbose:
+            print('NodeFeatureLoader.addCategoryFeature " \
+                  "from {} with {}'.format(self._input, cols))
+
         nodes = []
         features = []
         with open(self._input, newline='', encoding=self._encoding) as csvfile:
@@ -460,6 +468,10 @@ class NodeFeatureLoader(object):
         if len(cols) < 2:
             raise DGLError("addNumericalFeature requires at least 2 columns, " \
                 "one for nodes, others for numerical data")
+
+        if self._verbose:
+            print('NodeFeatureLoader.addCategoryFeature " \
+                  "from {} with {}'.format(self._input, cols))
 
         nodes = []
         features = []
@@ -579,6 +591,10 @@ class NodeFeatureLoader(object):
         if len(cols) == 2:
             raise DGLError("addMultiNumericalFeature only accept two columns, " \
                 "one for nodes, another for numerical data")
+
+        if self._verbose:
+            print('NodeFeatureLoader.addCategoryFeature " \
+                  "from {} with {}'.format(self._input, cols))
 
         nodes = []
         features = []
@@ -719,6 +735,10 @@ class NodeFeatureLoader(object):
         if bucket_cnt <= 1:
             raise DGLError("Number of bucket should be larger than 1")
 
+        if self._verbose:
+            print('NodeFeatureLoader.addCategoryFeature " \
+                  "from {} with {}'.format(self._input, cols))
+
         nodes = []
         features = []
         with open(self._input, newline='', encoding=self._encoding) as csvfile:
@@ -828,6 +848,10 @@ class NodeFeatureLoader(object):
         if len(cols) == 2:
             raise DGLError("addWord2VecFeature only accept two columns, " \
                 "one for nodes, another for string data")
+
+        if self._verbose:
+            print('NodeFeatureLoader.addCategoryFeature " \
+                  "from {} with {}'.format(self._input, cols))
 
         nodes = []
         features = []
@@ -1001,6 +1025,10 @@ class EdgeFeatureLoader(object):
             raise DGLError("addNumericalFeature only accept three columns, " \
                 "first two for source and destination nodes, " \
                 "the last for numerical data")
+
+        if self._verbose:
+            print('EdgeFeatureLoader.addNumericalFeature " \
+                  "from {} with {}'.format(self._input, cols))
 
         src_nodes = []
         dst_nodes = []
