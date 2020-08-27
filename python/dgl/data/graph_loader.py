@@ -80,8 +80,61 @@ class EdgeLoader(object):
         self._int_id = int_id
         self._eager_model = eager_mode
         self._verbose = verbose
+        self._edges = []
 
     def addEdges(self, cols, rows=None, src_type=None, dst_type=None, edge_type=None):
+        r""" Add edges into the graph
+
+        Two columns of **input** are chosen, one for
+        source node name and another for destination node name.
+        Each row represetns an edge.
+
+        Parameters
+        ----------
+        cols: list of str or int
+            Which columns to use. Supported data formats are
+
+            (1) [str, str] column names for nodes
+            The first column is treated as source node name,
+            the second column is treated as destination node name.
+            (2) [int, int, int] column numbers nodes.
+            The first column is treated as source node name,
+            the second column is treated as destination node name.
+
+        rows: numpy.array or list of int
+            Which row(s) to load. None to load all.
+            Default: None
+
+        src_type: str
+            Source node type. If None, default source node type is chosen.
+            Default: None
+
+        dst_type: str
+            Destination node type. If None, default destination node type is chosen.
+            Default: None
+
+        edge_type: str
+            Edge type. If None, default edge type is choose.
+            Default: None
+
+        Example:
+
+        ** Load Edges **
+
+        Example data of data.csv is as follows:
+
+        ===  ===
+        src  dst
+        ===  ===
+        1    0
+        0    2
+        3    4
+        ===  ===
+
+        >>> edgeloader = dgl.data.EdgeLoader()
+        >>> edgeloader.addEdges(cols=["src", "dst"], src_type='user', dst_type='movie', edge_type='like')
+
+        """
         if not isinstance(cols, list):
             raise DGLError("The cols should be a list of string or int")
 
@@ -89,7 +142,47 @@ class EdgeLoader(object):
             raise DGLError("addEdges only accepts two columns "\
                            "for source node and destination node.")
 
-        # TODO(xiang)
+        if edge_type != None and len(edge_type) != 3:
+            raise DGLError("edge_type should be None or a tuple of " \
+                "(src_type, relation_type, dst_type)")
+
+        src_nodes = []
+        dst_nodes = []
+        labels = []
+        with open(self._input, newline='', encoding=self._encoding) as csvfile:
+            if isinstance(cols[0], str):
+                assert self._has_head, \
+                    "The column name is provided to identify the target column." \
+                    "The input csv should have the head field"
+                reader = csv.reader(csvfile, delimiter=self._separator)
+                heads = reader.next()
+                # find index of each target field name
+                idx_cols = _field2idx(cols, heads)
+
+                assert len(idx_cols) == len(cols), \
+                    "one or more field names are not found in {}".format(self._input)
+                cols = idx_cols
+            else:
+                reader = csv.reader(csvfile, delimiter=self._separator)
+                if self._has_head:
+                    # skip field name
+                    reader.next()
+
+            # fast path, all rows are used
+            if rows is None:
+                for line in reader:
+                    src_nodes.append(line[cols[0]])
+                    dst_nodes.append(line[cols[1]])
+            else:
+                row_idx = 0
+                for idx, line in enumerate(reader):
+                    if rows[row_idx] == idx:
+                        src_nodes.append(line[cols[0]])
+                        dst_nodes.append(line[cols[1]])
+                        row_idx += 1
+                    # else skip this line
+
+        self._edges.append(edge_type, src_nodes, dst_nodes)
 
     def addCategoryRelation(self, cols, rows=None, src_type=None, dst_type=None):
         r"""Convert categorical features into edge relations
@@ -154,7 +247,54 @@ class EdgeLoader(object):
                            "the second for destination node, " \
                            "and third for edge category")
 
-        # TODO(xiang)
+        if edge_type != None and len(edge_type) != 3:
+            raise DGLError("edge_type should be None or a tuple of " \
+                "(src_type, relation_type, dst_type)")
+
+        edges = {}
+        labels = []
+        with open(self._input, newline='', encoding=self._encoding) as csvfile:
+            if isinstance(cols[0], str):
+                assert self._has_head, \
+                    "The column name is provided to identify the target column." \
+                    "The input csv should have the head field"
+                reader = csv.reader(csvfile, delimiter=self._separator)
+                heads = reader.next()
+                # find index of each target field name
+                idx_cols = _field2idx(cols, heads)
+
+                assert len(idx_cols) == len(cols), \
+                    "one or more field names are not found in {}".format(self._input)
+                cols = idx_cols
+            else:
+                reader = csv.reader(csvfile, delimiter=self._separator)
+                if self._has_head:
+                    # skip field name
+                    reader.next()
+
+            # fast path, all rows are used
+            if rows is None:
+                for line in reader:
+                    rel_type = line[cols[3]]
+                    if edges.has_key(rel_type):
+                        edges[rel_type][0].append(line[cols[0]])
+                        edges[rel_type][1].append(line[cols[1]])
+                    else:
+                        edges[rel_type] = ([line[cols[0]]], [line[cols[1]]])
+            else:
+                row_idx = 0
+                for idx, line in enumerate(reader):
+                    if rows[row_idx] == idx:
+                        rel_type = line[cols[3]]
+                        if edges.has_key(rel_type):
+                            edges[rel_type][0].append(line[cols[0]])
+                            edges[rel_type][1].append(line[cols[1]])
+                        else:
+                            edges[rel_type] = ([line[cols[0]]], [line[cols[1]]])
+                        row_idx += 1
+                    # else skip this line
+        for key, val in edges:
+            self._edges.append((src_type, rel_type, dst_type), val[0], val[1])
 
 class GraphLoader(object):
     r""" Generate DGLGraph by parsing files.

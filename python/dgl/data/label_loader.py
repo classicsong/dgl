@@ -657,6 +657,10 @@ class EdgeLabelLoader(object):
                            "the second for destination node, " \
                            "and third for labels")
 
+        if edge_type != None and len(edge_type) != 3:
+            raise DGLError("edge_type should be None or a tuple of " \
+                "(src_type, relation_type, dst_type)")
+
         if multilabel:
             assert len(cols) == 3, "Multi-class label requires one column for labels"
             assert separator is not None, "Multi-class label is supported, "\
@@ -749,6 +753,10 @@ class EdgeLabelLoader(object):
                            "the second for destination node, " \
                            "and third for labels")
 
+        if edge_type != None and len(edge_type) != 3:
+            raise DGLError("edge_type should be None or a tuple of " \
+                "(src_type, relation_type, dst_type)")
+
         if multilabel:
             assert len(cols) == 3, "Multi-class label requires one column for labels"
             assert separator is not None, "Multi-class label is supported, "\
@@ -840,6 +848,10 @@ class EdgeLabelLoader(object):
                            "or three columns, the first column for source node, " \
                            "the second for destination node, " \
                            "and third for labels")
+
+        if edge_type != None and len(edge_type) != 3:
+            raise DGLError("edge_type should be None or a tuple of " \
+                "(src_type, relation_type, dst_type)")
 
         if multilabel:
             assert separator is not None, "Multi-class label is supported, "\
@@ -935,6 +947,10 @@ class EdgeLabelLoader(object):
                            "or three columns, the first column for source node, " \
                            "the second for destination node, " \
                            "and third for labels")
+
+        if edge_type != None and len(edge_type) != 3:
+            raise DGLError("edge_type should be None or a tuple of " \
+                "(src_type, relation_type, dst_type)")
 
         if multilabel:
             assert len(cols) == 3, "Multi-class label requires one column for labels"
