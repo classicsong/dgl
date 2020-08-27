@@ -563,6 +563,7 @@ def parse_category_single_feat(category_inputs, norm=None):
         array([[1.,0.,0.],[0.,1.,0.],[0.,0.,1.],[1.,0.,0.]])
 
     """
+    from sklearn.preprocessing import LabelBinarizer
     lb = LabelBinarizer()
     feat = lb.fit_transform(category_inputs)
 
@@ -627,6 +628,7 @@ def parse_category_multi_feat(category_inputs, norm=None):
         array([[1.,1.,1.],[1.,1.,0.],[0.,0.,1.],[1.,0.,0.]])
 
     """
+    from sklearn.preprocessing import MultiLabelBinarizer
     mlb = MultiLabelBinarizer()
     feat = mlb.fit_transform(category_inputs)
 
@@ -731,17 +733,18 @@ def parse_numerical_multihot_feat(input_feats, low, high, bucket_cnt, window_siz
     Example
     -------
 
-    >>> inputs = [0., 15., 25., 40.]
+    >>> inputs = [0., 15., 26., 40.]
     >>> low = 10.
     >>> high = 30.
     >>> bucket_cnt = 4
-    >>> window_size = 10.
+    >>> window_size = 10. # range is 10 ~ 15; 15 ~ 20; 20 ~ 25; 25 ~ 30
     >>> feat = parse_numerical_multihot_feat(inputs, low, high, bucket_cnt, window_size)
     >>> feat
         array([[1., 0., 0., 0],
                [1., 1., 1., 0.],
                [0., 0., 1., 1.],
                [0., 0., 0., 1.]])
+
     """
     raw_feats = np.array(input_feats, dtype=np.float32)
     num_nodes = raw_feats.shape[0]
