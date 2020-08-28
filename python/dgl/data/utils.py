@@ -364,6 +364,16 @@ class Subset(object):
 
 ################### Feature Processing #######################
 
+def field2idx(cols, fields):
+    idx_cols = []
+    # find index of each target field name
+    for tg_field in cols:
+        for i, field_name in enumerate(fields):
+            if field_name == tg_field:
+                idx_cols.append(i)
+                break
+    return idx_cols
+
 def row_normalize(features):
     mx = sp.csr_matrix(features, dtype=np.float32)
 
@@ -381,6 +391,7 @@ def col_normalize(features):
     colsum = np.array(mx.sum(0))
     c_inv = np.power(colsum, -1).flatten()
     c_inv[np.isinf(c_inv)] = 0.
+    c_inv[np.isnan(c_inv)] = 0.
     c_mat_inv = sp.diags(c_inv).transpose()
     mx = mx.dot(c_mat_inv)
     return np.array(mx.todense())
@@ -389,12 +400,14 @@ def float_row_l1_normalize(features):
     rowsum = np.sum(np.abs(features), axis=1)
     r_inv = np.power(rowsum, -1).reshape(-1,1)
     r_inv[np.isinf(r_inv)] = 0.
+    r_inv[np.isnan(r_inv)] = 0.
     return features * r_inv
 
 def float_col_l1_normalize(features):
     colsum = np.sum(np.abs(features), axis=0)
     c_inv = np.power(colsum, -1)
     c_inv[np.isinf(c_inv)] = 0.
+    c_inv[np.isnan(c_inv)] = 0.
     return features * c_inv
 
 def float_col_maxmin_normalize(features):
@@ -402,6 +415,7 @@ def float_col_maxmin_normalize(features):
     min_val = np.reshape(np.amin(feats, axis=1), (-1, 1))
     max_val = np.reshape(np.amax(feats, axis=1), (-1, 1))
     norm = (feats - min_val) / (max_val - min_val)
+    norm[np.isinf(norm)] = 0.
     norm[np.isnan(norm)] = 0.
     return np.transpose(norm)
 

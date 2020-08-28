@@ -4,21 +4,11 @@ import os
 import csv
 
 from ..base import DGLError, dgl_warning
-from .utils import w2v_languages
 from .utils import parse_category_single_feat, parse_category_multi_feat
 from .utils import parse_numerical_feat
 from .utils import parse_numerical_multihot_feat
 from .utils import parse_word2vec_feature
-
-def _field2idx(cols, fields):
-    idx_cols = []
-    # find index of each target field name
-    for tg_field in cols:
-        for i, field_name in enumerate(fields):
-            if field_name == tg_field:
-                idx_cols.append(i)
-                break
-    return idx_cols
+from .utils import field2idx
 
 class NodeFeatureLoader(object):
     r"""Node feature loader class.
@@ -57,14 +47,14 @@ class NodeFeatureLoader(object):
 
     * Currently, we only support raw csv file input.
 
-    * If eager_model is True, the loader will processing
+    * If eager_mode is True, the loader will processing
     the features immediately after addXXXFeature
     is called. This will case extra performance overhead
     when merging multiple FeatureLoaders together to
-    build the DGLGraph. Currently eager_model is not
+    build the DGLGraph. Currently eager_mode is not
     supported.
 
-    * If eager_model if False, the features are not
+    * If eager_mode if False, the features are not
     processed until building the DGLGraph.
 
     Examples:
@@ -98,18 +88,18 @@ class NodeFeatureLoader(object):
     >>> graphloader.appendFeature(movie_loader)
 
     """
-    def __init__(self, input, separator='\t', has_head=True, int_id=False, eager_model=False,
+    def __init__(self, input, separator='\t', has_head=True, int_id=False, eager_mode=False,
         encoding='utf-8', verbose=False):
         if not os.path.exists(input):
             raise RuntimeError("File not exist {}".format(input))
 
-        assert self._eager_model, "Currently we do not support eager_model"
+        assert eager_mode is False, "Currently we do not support eager_mode"
 
         self._input = input
         self._separator = separator
         self._has_head = has_head
         self._int_id = int_id
-        self._eager_model = eager_mode
+        self._eager_mode = eager_mode
         self._encoding = encoding
         self._verbose = verbose
         self._raw_features = []
@@ -217,9 +207,9 @@ class NodeFeatureLoader(object):
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
                 reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
@@ -228,7 +218,7 @@ class NodeFeatureLoader(object):
                 reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -247,6 +237,8 @@ class NodeFeatureLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         nodes.append(line[cols[0]])
 
@@ -264,9 +256,9 @@ class NodeFeatureLoader(object):
 
         # single category
         if len(cols) == 2:
-            feat = parse_category_single_feat(features, norm=norm)
+            feat, _ = parse_category_single_feat(features, norm=norm)
         else:
-            feat = parse_category_multi_feat(features, norm=norm)
+            feat, _ = parse_category_multi_feat(features, norm=norm)
         assert len(nodes) == feat.shape[0]
         self._raw_features.append((node_type, nodes, feat))
 
@@ -352,7 +344,7 @@ class NodeFeatureLoader(object):
         if not isinstance(cols, list):
             raise DGLError("The cols should be a list of string or int")
 
-        if len(cols) == 2:
+        if len(cols) != 2:
             raise DGLError("addMultiCategoryFeature only accept two columns, " \
                 "one for nodes, another for category data")
 
@@ -368,9 +360,9 @@ class NodeFeatureLoader(object):
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
                 reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
@@ -379,7 +371,7 @@ class NodeFeatureLoader(object):
                 reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -389,13 +381,15 @@ class NodeFeatureLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         nodes.append(line[cols[0]])
                         features.append(line[cols[1]].split(separator))
                         row_idx += 1
                     # else skip this line
 
-        feat = parse_category_multi_feat(features, norm=norm)
+        feat, _ = parse_category_multi_feat(features, norm=norm)
         assert len(nodes) == feat.shape[0]
         self._raw_features.append((node_type, nodes, feat))
 
@@ -481,9 +475,9 @@ class NodeFeatureLoader(object):
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
                 reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
@@ -492,7 +486,7 @@ class NodeFeatureLoader(object):
                 reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -506,9 +500,12 @@ class NodeFeatureLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         nodes.append(line[cols[0]])
 
+                        row_f = []
                         for i in range(1, len(cols)):
                             row_f.append(float(line[cols[i]]))
                         features.append(row_f)
@@ -588,7 +585,7 @@ class NodeFeatureLoader(object):
         if not isinstance(cols, list):
             raise DGLError("The cols should be a list of string or int")
 
-        if len(cols) == 2:
+        if len(cols) != 2:
             raise DGLError("addMultiNumericalFeature only accept two columns, " \
                 "one for nodes, another for numerical data")
 
@@ -604,9 +601,9 @@ class NodeFeatureLoader(object):
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
                 reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
@@ -615,7 +612,7 @@ class NodeFeatureLoader(object):
                 reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -625,6 +622,8 @@ class NodeFeatureLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         nodes.append(line[cols[0]])
                         features.append([float(val) for val in line[cols[1]].split(separator)])
@@ -722,7 +721,7 @@ class NodeFeatureLoader(object):
         if not isinstance(cols, list):
             raise DGLError("The cols should be a list of string or int")
 
-        if len(cols) == 2:
+        if len(cols) != 2:
             raise DGLError("addNumericalBucketFeature only accept two columns, " \
                 "one for nodes, another for numerical data")
 
@@ -747,9 +746,9 @@ class NodeFeatureLoader(object):
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
                 reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
@@ -758,7 +757,7 @@ class NodeFeatureLoader(object):
                 reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -768,6 +767,8 @@ class NodeFeatureLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         nodes.append(line[cols[0]])
                         features.append(float(line[cols[1]]))
@@ -778,7 +779,8 @@ class NodeFeatureLoader(object):
                                              low=range[0],
                                              high=range[1],
                                              bucket_cnt=bucket_cnt,
-                                             window_size=slide_window_size)
+                                             window_size=slide_window_size,
+                                             norm=norm)
         assert len(nodes) == feat.shape[0]
         self._raw_features.append((node_type, nodes, feat))
 
@@ -845,7 +847,7 @@ class NodeFeatureLoader(object):
         if not isinstance(cols, list):
             raise DGLError("The cols should be a list of string or int")
 
-        if len(cols) == 2:
+        if len(cols) != 2:
             raise DGLError("addWord2VecFeature only accept two columns, " \
                 "one for nodes, another for string data")
 
@@ -861,9 +863,9 @@ class NodeFeatureLoader(object):
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
                 reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
@@ -872,7 +874,7 @@ class NodeFeatureLoader(object):
                 reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -882,6 +884,8 @@ class NodeFeatureLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         nodes.append(line[cols[0]])
                         features.append(line[cols[1]])
@@ -926,12 +930,12 @@ class EdgeFeatureLoader(object):
 
     Note: Currently, we only support raw csv file input.
 
-    If eager_model is True, the loader will processing
+    If eager_mode is True, the loader will processing
     the features immediately after addXXXFeature
     is called. This will case extra performance overhead
     when merging multiple FeatureLoaders together to
     build the DGLGraph.
-    If eager_model if False, the features are not
+    If eager_mode if False, the features are not
     processed until building the DGLGraph.
 
     Examples:
@@ -948,17 +952,17 @@ class EdgeFeatureLoader(object):
 
     """
     def __init__(self, input,
-        separator='\t', has_head=False, int_id=False, eager_model=False, verbose=False):
+        separator='\t', has_head=False, int_id=False, eager_mode=False, verbose=False):
         if not os.path.exists(input):
             raise RuntimeError("File not exist {}".format(input))
 
-        assert self._eager_model, "Currently we do not support eager_model"
+        assert eager_mode is False, "Currently we do not support eager_mode"
 
         self._input = input
         self._separator = separator
         self._has_head = has_head
         self._int_id = int_id
-        self._eager_model = eager_mode
+        self._eager_mode = eager_mode
         self._verbose = verbose
 
     def addNumericalFeature(self, cols, rows=None, norm=None, edge_type=None):
@@ -988,13 +992,13 @@ class EdgeFeatureLoader(object):
 
         * Currently, we only support raw csv file input.
 
-        * If eager_model is True, the loader will processing
+        * If eager_mode is True, the loader will processing
         the labels immediately after addXXXSet
         is called. This will case extra performance overhead
         when merging multiple label loaders together to
         build the DGLGraph.
 
-        * If eager_model if False, the labels are not
+        * If eager_mode if False, the labels are not
         processed until building the DGLGraph.
 
         Examples:
@@ -1039,9 +1043,9 @@ class EdgeFeatureLoader(object):
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
                 reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
@@ -1050,7 +1054,7 @@ class EdgeFeatureLoader(object):
                 reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -1065,6 +1069,8 @@ class EdgeFeatureLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         src_nodes.append(line[cols[0]])
                         dst_nodes.append(line[cols[1]])

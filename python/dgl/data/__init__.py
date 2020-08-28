@@ -25,7 +25,8 @@ from .dgl_dataset import DGLDataset, DGLBuiltinDataset
 from .citation_graph import CoraGraphDataset, CiteseerGraphDataset, PubmedGraphDataset
 from .knowledge_graph import FB15k237Dataset, FB15kDataset, WN18Dataset
 from .rdf import AIFBDataset, MUTAGDataset, BGSDataset, AMDataset
-
+from .feature_loader import NodeFeatureLoader, EdgeFeatureLoader
+from .label_loader import NodeLabelLoader, EdgeLabelLoader
 
 def register_data_args(parser):
     parser.add_argument(

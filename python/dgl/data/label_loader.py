@@ -1,8 +1,11 @@
 """Classes for loading node or edge labels"""
 
 import os
+import csv
 
 from ..base import DGLError, dgl_warning
+from .utils import parse_category_single_feat, parse_category_multi_feat
+from .utils import field2idx
 
 class NodeLabelLoader(object):
     r"""NabeLabelLoader allows users to define the grand truth of nodes and the
@@ -38,13 +41,13 @@ class NodeLabelLoader(object):
 
     * Currently, we only support raw csv file input.
 
-    * If eager_model is True, the loader will processing
+    * If eager_mode is True, the loader will processing
     the labels immediately after addXXXSet
     is called. This will case extra performance overhead
     when merging multiple label loaders together to
     build the DGLGraph.
 
-    * If eager_model if False, the labels are not
+    * If eager_mode if False, the labels are not
     processed until building the DGLGraph.
 
     Examples:
@@ -69,31 +72,31 @@ class NodeLabelLoader(object):
     >>> graphloader.appendLabel(label_loader)
 
     """
-    def __init__(input, separator='\t', has_head=False, int_id=False,
+    def __init__(self, input, separator='\t', has_head=True, int_id=False,
         eager_mode=False, encoding='utf-8', verbose=False):
         if not os.path.exists(input):
             raise RuntimeError("File not exist {}".format(input))
 
-        assert self._eager_model, "Currently we do not support eager_model"
+        assert eager_mode is False, "Currently we do not support eager_mode"
 
         self._input = input
         self._separator = separator
         self._has_head = has_head
         self._int_id = int_id
-        self._eager_model = eager_mode
+        self.eager_mode = eager_mode
         self._encoding = encoding
         self._verbose = verbose
         self._label_map = None
         self._labels = []
 
-    def _set_label_map(label_map):
+    def _set_label_map(self, label_map):
         if self._label_map is None:
             self._label_map = label_map
         else:
-            for key, id in label_map:
+            for key, id in label_map.items():
                 assert key in self._label_map
 
-    def _load_labels(cols, multilabel=False, separator=None, rows=None):
+    def _load_labels(self, cols, multilabel=False, separator=None, rows=None):
         nodes = []
         labels = []
         with open(self._input, newline='', encoding=self._encoding) as csvfile:
@@ -102,10 +105,9 @@ class NodeLabelLoader(object):
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
                 reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
-
+                idx_cols = field2idx(cols, heads)
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
                 cols = idx_cols
@@ -113,7 +115,7 @@ class NodeLabelLoader(object):
                 reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -126,6 +128,8 @@ class NodeLabelLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         nodes.append(line[cols[0]])
                         if multilabel:
@@ -140,7 +144,7 @@ class NodeLabelLoader(object):
             labels, label_map = parse_category_single_feat(labels, norm=None)
         return nodes, labels, label_map
 
-    def addTrainSet(cols, multilabel=False, separator=None, rows=None, node_type=None):
+    def addTrainSet(self, cols, multilabel=False, separator=None, rows=None, node_type=None):
         r"""Add Training Set.
 
         Two columns of the **input** are chosen, one for
@@ -212,7 +216,7 @@ class NodeLabelLoader(object):
         self._set_label_map(label_map)
         self._labels.append((node_type, nodes, labels, (1., 0., 0.)))
 
-    def addValidSet(cols, multilabel=False, separator=None, rows=None, node_type=None):
+    def addValidSet(self, cols, multilabel=False, separator=None, rows=None, node_type=None):
         r"""Add Validation Set.
 
         Two columns of the **input** are chosen, one for
@@ -284,7 +288,7 @@ class NodeLabelLoader(object):
         self._set_label_map(label_map)
         self._labels.append((node_type, nodes, labels, (0., 1., 0.)))
 
-    def addTestSet(cols, multilabel=False, separator=None, rows=None, node_type=None):
+    def addTestSet(self, cols, multilabel=False, separator=None, rows=None, node_type=None):
         r"""Add Test Set.
 
         Two columns of the **input** are chosen, one for
@@ -356,7 +360,7 @@ class NodeLabelLoader(object):
         self._set_label_map(label_map)
         self._labels.append((node_type, nodes, labels, (0., 0., 1.)))
 
-    def addSet(cols, split_rate, multilabel=False, separator=None, rows=None, node_type=None):
+    def addSet(self, cols, split_rate, multilabel=False, separator=None, rows=None, node_type=None):
         r"""Add Test Set.
 
         Two columns of the **input** are chosen, one for
@@ -473,13 +477,13 @@ class EdgeLabelLoader(object):
 
     * Currently, we only support raw csv file input.
 
-    * If eager_model is True, the loader will processing
+    * If eager_mode is True, the loader will processing
     the labels immediately after addXXXSet
     is called. This will case extra performance overhead
     when merging multiple label loaders together to
     build the DGLGraph.
 
-    * If eager_model if False, the labels are not
+    * If eager_mode if False, the labels are not
     processed until building the DGLGraph.
 
     Examples:
@@ -503,30 +507,31 @@ class EdgeLabelLoader(object):
     >>> graphloader.appendLabel(label_loader)
 
     """
-    def __init__(input,separator='\t', has_head=False, int_id=False,
-        eager_mode=False, verbose=False):
+    def __init__(self, input,separator='\t', has_head=True, int_id=False,
+        eager_mode=False, encoding='utf-8', verbose=False):
         if not os.path.exists(input):
             raise RuntimeError("File not exist {}".format(input))
 
-        assert self._eager_model, "Currently we do not support eager_model"
+        assert eager_mode is False, "Currently we do not support eager_mode"
 
         self._input = input
         self._separator = separator
         self._has_head = has_head
         self._int_id = int_id
-        self._eager_model = eager_mode
+        self._eager_mode = eager_mode
+        self._encoding = encoding
         self._verbose = verbose
         self._label_map = None
         self._labels = []
 
-    def _set_label_map(label_map):
+    def _set_label_map(self, label_map):
         if self._label_map is None:
             self._label_map = label_map
         else:
-            for key, id in label_map:
+            for key, id in label_map.items():
                 assert key in self._label_map
 
-    def _load_labels(cols, multilabel=False, separator=None, rows=None):
+    def _load_labels(self, cols, multilabel=False, separator=None, rows=None):
         src_nodes = []
         dst_nodes = []
         labels = []
@@ -536,9 +541,9 @@ class EdgeLabelLoader(object):
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
                 reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
@@ -547,7 +552,7 @@ class EdgeLabelLoader(object):
                 reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -562,6 +567,8 @@ class EdgeLabelLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         src_nodes.append(line[cols[0]])
                         dst_nodes.append(line[cols[1]])
@@ -582,7 +589,7 @@ class EdgeLabelLoader(object):
                 label_map = None
         return src_nodes, dst_nodes, labels, label_map
 
-    def addTrainSet(cols, multilabel=False, separator=None, rows=None, edge_type=None):
+    def addTrainSet(self, cols, multilabel=False, separator=None, rows=None, edge_type=None):
         r"""Add Training Set.
 
         Two or three columns of the **input** are chosen.
@@ -668,8 +675,8 @@ class EdgeLabelLoader(object):
 
         src_nodes, dst_nodes, labels, label_map = \
             self._load_labels(cols, multilabel, separator, rows)
-        assert len(nodes) == labels.shape[0], \
-            'Train nodes shape {} and labels shape {} mismatch'.format(len(nodes),
+        assert len(src_nodes) == labels.shape[0], \
+            'Train nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
                                                                        labels.shape[0])
         self._set_label_map(label_map)
         self._labels.append((edge_type,
@@ -678,7 +685,7 @@ class EdgeLabelLoader(object):
                              labels,
                              (1., 0., 0.)))
 
-    def addValidSet(cols, multilabel=False, separator=None, rows=None, edge_type=None):
+    def addValidSet(self, cols, multilabel=False, separator=None, rows=None, edge_type=None):
         r"""Add Validation Set.
 
         Two or three columns of the **input** are chosen.
@@ -764,8 +771,8 @@ class EdgeLabelLoader(object):
 
         src_nodes, dst_nodes, labels, label_map = \
             self._load_labels(cols, multilabel, separator, rows)
-        assert len(nodes) == labels.shape[0], \
-            'Valid nodes shape {} and labels shape {} mismatch'.format(len(nodes),
+        assert len(src_nodes) == labels.shape[0], \
+            'Valid nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
                                                                        labels.shape[0])
         self._set_label_map(label_map)
         self._labels.append((edge_type,
@@ -774,7 +781,7 @@ class EdgeLabelLoader(object):
                              labels,
                              (0., 1., 0.)))
 
-    def addTestSet(cols, multilabel=False, separator=None, rows=None, edge_type=None):
+    def addTestSet(self, cols, multilabel=False, separator=None, rows=None, edge_type=None):
         r"""Add Test Set.
 
         Two or three columns of the **input** are chosen.
@@ -859,8 +866,8 @@ class EdgeLabelLoader(object):
 
         src_nodes, dst_nodes, labels, label_map = \
             self._load_labels(cols, multilabel, separator, rows)
-        assert len(nodes) == labels.shape[0], \
-            'Test nodes shape {} and labels shape {} mismatch'.format(len(nodes),
+        assert len(src_nodes) == labels.shape[0], \
+            'Test nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
                                                                       labels.shape[0])
         self._set_label_map(label_map)
         self._labels.append((edge_type,
@@ -869,7 +876,7 @@ class EdgeLabelLoader(object):
                              labels,
                              (0., 0., 1.)))
 
-    def addSet(cols, split_rate, multilabel=False, separator=None, rows=None, edge_type=None):
+    def addSet(self, cols, split_rate, multilabel=False, separator=None, rows=None, edge_type=None):
         r"""Add Test Set.
 
         Two or three columns of the **input** are chosen.
@@ -966,8 +973,8 @@ class EdgeLabelLoader(object):
 
         src_nodes, dst_nodes, labels, label_map = \
             self._load_labels(cols, multilabel, separator, rows)
-        assert len(nodes) == labels.shape[0], \
-            'nodes shape {} and labels shape {} mismatch'.format(len(nodes),
+        assert len(src_nodes) == labels.shape[0], \
+            'nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
                                                                  labels.shape[0])
         self._set_label_map(label_map)
         self._labels.append((edge_type,

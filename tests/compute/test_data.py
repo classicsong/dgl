@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 import dgl.data as data
 import unittest, pytest
 import numpy as np
@@ -209,7 +212,7 @@ def test_parse_lang_feat():
     res_feats = np.stack(res_feats)
     assert np.allclose(feats, res_feats)
 
-@unittest.skip("LabelBinarizer and MultiLabelBinarizer is not included in CI env")
+# @unittest.skip("LabelBinarizer and MultiLabelBinarizer is not included in CI env")
 def test_parse_category_feat():
     # single-hot
     inputs = ['A', 'B']
@@ -222,9 +225,9 @@ def test_parse_category_feat():
     # col norm
     feats, c_map = data.utils.parse_category_single_feat(inputs, norm='col')
     assert np.allclose(np.array([[.5,0.,0.],[0.,1.,0.],[0.,0.,1.],[.5,0.,0.]]), feats)
-    assert c_map[0] = 'A'
-    assert c_map[1] = 'B'
-    assert c_map[2] = 'C'
+    assert c_map[0] == 'A'
+    assert c_map[1] == 'B'
+    assert c_map[2] == 'C'
 
     # multi-hot
     inputs = [['A'], ['B']]
@@ -234,9 +237,9 @@ def test_parse_category_feat():
     inputs = [['A', 'B', 'C',], ['A', 'B'], ['C'], ['A']]
     feats, c_map = data.utils.parse_category_multi_feat(inputs)
     assert np.allclose(np.array([[1.,1.,1.],[1.,1.,0.],[0.,0.,1.],[1.,0.,0.]]), feats)
-    assert c_map[0] = 'A'
-    assert c_map[1] = 'B'
-    assert c_map[2] = 'C'
+    assert c_map[0] == 'A'
+    assert c_map[1] == 'B'
+    assert c_map[2] == 'C'
 
     # row norm
     feats, _ = data.utils.parse_category_multi_feat(inputs, norm='row')
@@ -340,18 +343,690 @@ def test_parse_numerical_multihot_feat():
                                  [0., 0., 0., 1.],
                                  [0., 0., 0., 1.]]), feat)
 
+def create_category_node_feat(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}feat1{}feat2{}feat3\n".format(separator,separator,separator))
+    node_feat_f.write("node1{}A{}B{}A,B\n".format(separator,separator,separator))
+    node_feat_f.write("node2{}A{}{}A\n".format(separator,separator,separator))
+    node_feat_f.write("node3{}C{}B{}C,B\n".format(separator,separator,separator))
+    node_feat_f.write("node3{}A{}C{}A,C\n".format(separator,separator,separator))
+    node_feat_f.close()
+
+# @unittest.skip("LabelBinarizer and MultiLabelBinarizer is not included in CI env")
+def test_node_category_feature_loader():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_category_node_feat(Path(tmpdirname), 'node_category_feat.csv')
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_category_feat.csv'))
+        feat_loader.addCategoryFeature([0, 1])
+        feat_loader.addCategoryFeature(['node', 'feat1'], norm='row', node_type='node')
+        feat_loader.addCategoryFeature(['node', 'feat1'], norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1,0],[1,0],[0,1],[1,0]]),
+                           f_1[2])
+        assert np.allclose(np.array([[1,0],[1,0],[0,1],[1,0]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./3.,0],[1./3.,0],[0,1],[1./3.,0]]),
+                           f_3[2])
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_category_feat.csv'))
+        feat_loader.addCategoryFeature([0, 1, 2])
+        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'], norm='row', node_type='node')
+        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'], norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1,1,0],[1,0,0],[0,1,1],[1,0,1]]),
+                           f_1[2])
+        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0,0.5,0.5],[0.5,0,0.5]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./3.,1./2.,0],
+                                     [1./3.,0,    0],
+                                     [0,    1./2.,1./2.],
+                                     [1./3.,0,    1./2.]]),
+                           f_3[2])
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_category_feat.csv'))
+        feat_loader.addCategoryFeature([0, 1, 2], rows=[0,1,3])
+        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'],
+                                        rows=[0,1,3], norm='row', node_type='node')
+        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'],
+                                        rows=[0,1,3], norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1,1,0],[1,0,0],[1,0,1]]),
+                           f_1[2])
+        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0.5,0,0.5]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./3.,1.,0.],
+                                     [1./3.,0.,0.],
+                                     [1./3.,0.,1.]]),
+                           f_3[2])
+
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                                'node_category_feat.csv'))
+        feat_loader.addMultiCategoryFeature([0, 3], separator=',')
+        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',', norm='row', node_type='node')
+        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',', norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1,1,0],[1,0,0],[0,1,1],[1,0,1]]),
+                           f_1[2])
+        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0,0.5,0.5],[0.5,0,0.5]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./3.,1./2.,0],
+                                     [1./3.,0,    0],
+                                     [0,    1./2.,1./2.],
+                                     [1./3.,0,    1./2.]]),
+                           f_3[2])
+
+        feat_loader.addMultiCategoryFeature([0, 3], rows=[0,1,3], separator=',')
+        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',',
+                                            rows=[0,1,3], norm='row', node_type='node')
+        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',',
+                                            rows=[0,1,3], norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[3]
+        f_2 = feat_loader._raw_features[4]
+        f_3 = feat_loader._raw_features[5]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1,1,0],[1,0,0],[1,0,1]]),
+                           f_1[2])
+        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0.5,0,0.5]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./3.,1.,0.],
+                                     [1./3.,0.,0.],
+                                     [1./3.,0.,1.]]),
+                           f_3[2])
+
+def create_numerical_node_feat(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}feat1{}feat2{}feat3{}feat4\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node1{}1.{}2.{}0.{}1.,2.,0.\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node2{}2.{}-1.{}0.{}2.,-1.,0.\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node3{}0.{}0.{}0.{}0.,0.,0.\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node3{}4.{}-2.{}0.{}4.,-2.,0.\n".format(sep,sep,sep,sep))
+    node_feat_f.close()
+
+def create_numerical_bucket_node_feat(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}feat1{}feat2\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}0{}0.\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}0{}5.\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}0{}15.\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}0{}20.\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}0{}10.1\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}0{}25.\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}0{}30.1\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}0{}40.\n".format(sep,sep,sep))
+    node_feat_f.close()
+
+def test_node_numerical_feature_loader():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_numerical_node_feat(Path(tmpdirname), 'node_numerical_feat.csv')
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_numerical_feat.csv'))
+        feat_loader.addNumericalFeature([0, 1])
+        feat_loader.addNumericalFeature(['node', 'feat1'], norm='standard', node_type='node')
+        feat_loader.addNumericalFeature(['node', 'feat1'], norm='min-max', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1.],[2.],[0.],[4.]]),
+                           f_1[2])
+        assert np.allclose(np.array([[1./7.],[2./7.],[0.],[4./7.]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./4.],[2./4],[0.],[1.]]),
+                           f_3[2])
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_numerical_feat.csv'))
+        feat_loader.addNumericalFeature([0,1,2,3])
+        feat_loader.addNumericalFeature(['node', 'feat1','feat2','feat3'],
+                                        norm='standard',
+                                        node_type='node')
+        feat_loader.addNumericalFeature(['node', 'feat1','feat2','feat3'],
+                                        norm='min-max',
+                                        node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1.,2.,0.],[2.,-1.,0.],[0.,0.,0.],[4.,-2.,0.]]),
+                           f_1[2])
+        assert np.allclose(np.array([[1./7.,2./5.,0.],[2./7.,-1./5.,0.],[0.,0.,0.],[4./7.,-2./5.,0.]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./4.,1.,0.],[2./4,1./4.,0.],[0.,2./4.,0.],[1.,0.,0.]]),
+                           f_3[2])
+
+        feat_loader.addNumericalFeature([0,1,2,3],rows=[1,2,3])
+        feat_loader.addNumericalFeature(['node', 'feat1','feat2','feat3'],
+                                        rows=[1,2,3],
+                                        norm='standard',
+                                        node_type='node')
+        feat_loader.addNumericalFeature(['node', 'feat1','feat2','feat3'],
+                                        rows=[1,2,3],
+                                        norm='min-max',
+                                        node_type='node')
+        f_1 = feat_loader._raw_features[3]
+        f_2 = feat_loader._raw_features[4]
+        f_3 = feat_loader._raw_features[5]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[2.,-1.,0.],[0.,0.,0.],[4.,-2.,0.]]),
+                           f_1[2])
+        assert np.allclose(np.array([[2./6.,-1./3.,0.],[0.,0.,0.],[4./6.,-2./3.,0.]]),
+                           f_2[2])
+        assert np.allclose(np.array([[2./4.,1./2.,0.],[0.,1.,0.],[1.,0.,0.]]),
+                           f_3[2])
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_numerical_feat.csv'))
+        feat_loader.addMultiNumericalFeature([0,4], separator=',')
+        feat_loader.addMultiNumericalFeature(['node', 'feat4'],
+                                             separator=',',
+                                             norm='standard',
+                                             node_type='node')
+        feat_loader.addMultiNumericalFeature(['node', 'feat4'],
+                                             separator=',',
+                                             norm='min-max',
+                                             node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1.,2.,0.],[2.,-1.,0.],[0.,0.,0.],[4.,-2.,0.]]),
+                           f_1[2])
+        assert np.allclose(np.array([[1./7.,2./5.,0.],[2./7.,-1./5.,0.],[0.,0.,0.],[4./7.,-2./5.,0.]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./4.,1.,0.],[2./4,1./4.,0.],[0.,2./4.,0.],[1.,0.,0.]]),
+                           f_3[2])
+
+        feat_loader.addMultiNumericalFeature([0,4], separator=',', rows=[1,2,3])
+        feat_loader.addMultiNumericalFeature(['node', 'feat4'],
+                                             separator=',',
+                                             rows=[1,2,3],
+                                             norm='standard',
+                                             node_type='node')
+        feat_loader.addMultiNumericalFeature(['node', 'feat4'],
+                                             separator=',',
+                                             rows=[1,2,3],
+                                             norm='min-max',
+                                             node_type='node')
+        f_1 = feat_loader._raw_features[3]
+        f_2 = feat_loader._raw_features[4]
+        f_3 = feat_loader._raw_features[5]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[2.,-1.,0.],[0.,0.,0.],[4.,-2.,0.]]),
+                           f_1[2])
+        assert np.allclose(np.array([[2./6.,-1./3.,0.],[0.,0.,0.],[4./6.,-2./3.,0.]]),
+                           f_2[2])
+        assert np.allclose(np.array([[2./4.,1./2.,0.],[0.,1.,0.],[1.,0.,0.]]),
+                           f_3[2])
+
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_numerical_bucket_node_feat(Path(tmpdirname), 'node_numerical_bucket_feat.csv')
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_numerical_bucket_feat.csv'))
+        feat_loader.addNumericalBucketFeature([0, 2],
+                                              range=[10,30],
+                                              bucket_cnt=2)
+        feat_loader.addNumericalBucketFeature(['node', 'feat2'],
+                                              range=[10,30],
+                                              bucket_cnt=2,
+                                              norm='row', node_type='node')
+        feat_loader.addNumericalBucketFeature(['node', 'feat2'],
+                                              range=[10,30],
+                                              bucket_cnt=2,
+                                              norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1., 0.], [1., 0.], [1., 0.], [0., 1.],
+                                    [1., 0.], [0., 1.], [0., 1.], [0., 1.]]),
+                           f_1[2])
+        assert np.allclose(np.array([[1., 0.], [1., 0.], [1., 0.], [0., 1.],
+                                    [1., 0.], [0., 1.], [0., 1.], [0., 1.]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./4., 0.], [1./4., 0.], [1./4., 0.], [0., 1./4],
+                                     [1./4., 0.], [0., 1./4.], [0., 1./4.], [0., 1./4.]]),
+                           f_3[2])
+
+        feat_loader.addNumericalBucketFeature([0, 2],
+                                              rows=[0,2,3,4,5,6],
+                                              range=[10,30],
+                                              bucket_cnt=2)
+        feat_loader.addNumericalBucketFeature(['node', 'feat2'],
+                                              rows=[0,2,3,4,5,6],
+                                              range=[10,30],
+                                              bucket_cnt=2,
+                                              norm='row', node_type='node')
+        feat_loader.addNumericalBucketFeature(['node', 'feat2'],
+                                              rows=[0,2,3,4,5,6],
+                                              range=[10,30],
+                                              bucket_cnt=2,
+                                              norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[3]
+        f_2 = feat_loader._raw_features[4]
+        f_3 = feat_loader._raw_features[5]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1., 0.], [1., 0.], [0., 1.],
+                                     [1., 0.], [0., 1.], [0., 1.]]),
+                           f_1[2])
+        assert np.allclose(np.array([[1., 0.], [1., 0.], [0., 1.],
+                                     [1., 0.], [0., 1.], [0., 1.]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./3., 0.], [1./3., 0.], [0., 1./3],
+                                     [1./3., 0.], [0., 1./3.], [0., 1./3.]]),
+                           f_3[2])
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_numerical_bucket_feat.csv'))
+        feat_loader.addNumericalBucketFeature([0, 2],
+                                              range=[10,30],
+                                              bucket_cnt=4,
+                                              slide_window_size=10.)
+        feat_loader.addNumericalBucketFeature(['node', 'feat2'],
+                                              range=[10,30],
+                                              bucket_cnt=4,
+                                              slide_window_size=10.,
+                                              norm='row', node_type='node')
+        feat_loader.addNumericalBucketFeature(['node', 'feat2'],
+                                              range=[10,30],
+                                              bucket_cnt=4,
+                                              slide_window_size=10.,
+                                              norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(np.array([[1., 0., 0., 0],
+                                     [1., 0., 0., 0],
+                                     [1., 1., 1., 0.],
+                                     [0., 1., 1., 1.],
+                                     [1., 1., 0., 0.],
+                                     [0., 0., 1., 1.],
+                                     [0., 0., 0., 1.],
+                                     [0., 0., 0., 1.]]),
+                           f_1[2])
+        assert np.allclose(np.array([[1., 0., 0., 0],
+                                     [1., 0., 0., 0],
+                                     [1./3., 1./3., 1./3., 0.],
+                                     [0., 1./3., 1./3., 1./3.],
+                                     [1./2., 1./2., 0., 0.],
+                                     [0., 0., 1./2., 1./2.],
+                                     [0., 0., 0., 1.],
+                                     [0., 0., 0., 1.]]),
+                           f_2[2])
+        assert np.allclose(np.array([[1./4., 0.,    0.,    0],
+                                     [1./4., 0.,    0.,    0],
+                                     [1./4., 1./3., 1./3., 0.],
+                                     [0.,    1./3., 1./3., 1./4.],
+                                     [1./4., 1./3., 0.,    0.],
+                                     [0.,    0.,    1./3., 1./4.],
+                                     [0.,    0.,    0.,    1./4.],
+                                     [0.,    0.,    0.,    1./4.]]),
+                           f_3[2])
+
+def create_word_node_feat(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}feat1{}feat2{}feat3\n".format(separator,separator,separator))
+    node_feat_f.write("node1{}A{}B{}24\n".format(separator,separator,separator))
+    node_feat_f.write("node2{}A{}{}1\n".format(separator,separator,separator))
+    node_feat_f.write("node3{}C{}B{}12\n".format(separator,separator,separator))
+    node_feat_f.write("node3{}A{}C{}13\n".format(separator,separator,separator))
+    node_feat_f.close()
+
+def test_node_word2vec_feature_loader():
+    import tempfile
+    import spacy
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_word_node_feat(Path(tmpdirname), 'node_word_feat.csv')
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_word_feat.csv'))
+        feat_loader.addWord2VecFeature([0, 1], languages=['en_core_web_lg'])
+        feat_loader.addWord2VecFeature(['node', 'feat1'],
+                                       languages=['en_core_web_lg'],
+                                       node_type='node')
+        feat_loader.addWord2VecFeature(['node', 'feat1'],
+                                       languages=['en_core_web_lg'],
+                                       node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(f_1[2], f_2[2])
+        assert np.allclose(f_1[2], f_3[2])
+        nlp = spacy.load('en_core_web_lg')
+        assert np.allclose(np.array([nlp("A").vector,
+                                     nlp("A").vector,
+                                     nlp("C").vector,
+                                     nlp("A").vector]),
+                           f_1[2])
+
+        feat_loader.addWord2VecFeature([0, 3], languages=['en_core_web_lg', 'fr_core_news_lg'])
+        feat_loader.addWord2VecFeature(['node', 'feat3'],
+                                       languages=['en_core_web_lg', 'fr_core_news_lg'],
+                                       node_type='node')
+        feat_loader.addWord2VecFeature(['node', 'feat3'],
+                                       languages=['en_core_web_lg', 'fr_core_news_lg'],
+                                       node_type='node')
+        f_1 = feat_loader._raw_features[3]
+        f_2 = feat_loader._raw_features[4]
+        f_3 = feat_loader._raw_features[5]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(f_1[2], f_2[2])
+        assert np.allclose(f_1[2], f_3[2])
+        nlp1 = spacy.load('fr_core_news_lg')
+        assert np.allclose(np.array([np.concatenate((nlp("24").vector, nlp1("24").vector)),
+                                     np.concatenate((nlp("1").vector, nlp1("1").vector)),
+                                     np.concatenate((nlp("12").vector, nlp1("12").vector)),
+                                     np.concatenate((nlp("13").vector, nlp1("13").vector))]),
+                           f_1[2])
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_word_feat.csv'))
+        feat_loader.addWord2VecFeature([0, 3],
+                                       rows=[1,2],
+                                       languages=['en_core_web_lg', 'fr_core_news_lg'])
+        feat_loader.addWord2VecFeature(['node', 'feat3'],
+                                       rows=[1,2],
+                                       languages=['en_core_web_lg', 'fr_core_news_lg'],
+                                       node_type='node')
+        feat_loader.addWord2VecFeature(['node', 'feat3'],
+                                       rows=[1,2],
+                                       languages=['en_core_web_lg', 'fr_core_news_lg'],
+                                       node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == 'node'
+        assert f_3[0] == 'node'
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == f_3[1]
+        assert np.allclose(f_1[2], f_2[2])
+        assert np.allclose(f_1[2], f_3[2])
+        nlp1 = spacy.load('fr_core_news_lg')
+        assert np.allclose(np.array([np.concatenate((nlp("1").vector, nlp1("1").vector)),
+                                     np.concatenate((nlp("12").vector, nlp1("12").vector))]),
+                           f_1[2])
+
+def create_node_labels(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}label1{}label2\n".format(separator,separator))
+    node_feat_f.write("node1{}A{}D,A\n".format(separator,separator))
+    node_feat_f.write("node2{}A{}E,C,D\n".format(separator,separator))
+    node_feat_f.write("node3{}C{}F,A,B\n".format(separator,separator))
+    node_feat_f.write("node4{}A{}G,E\n".format(separator,separator))
+    node_feat_f.close()
+
+def test_node_label_loader():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_node_labels(Path(tmpdirname), 'labels.csv')
+        label_loader = data.NodeLabelLoader(os.path.join(tmpdirname,
+                                                         'labels.csv'))
+        label_loader.addTrainSet([0,1])
+        label_loader.addValidSet(['node','label1'], node_type='node')
+        label_loader.addTestSet(['node','label1'], rows=[0,2], node_type='node')
+        label_loader.addSet(['node','label1'], [0.5, 0.25, 0.25], rows=[0,1,2,3], node_type='nt')
+        l_1 = label_loader._labels[0]
+        l_2 = label_loader._labels[1]
+        l_3 = label_loader._labels[2]
+        l_4 = label_loader._labels[3]
+        assert l_1[0] == None
+        assert l_2[0] == 'node'
+        assert l_3[0] == 'node'
+        assert l_4[0] == 'nt'
+        assert l_1[1] == l_2[1]
+        assert l_1[1] == ['node1', 'node2', 'node3', 'node4']
+        assert l_3[1] == ['node1', 'node3']
+        assert l_4[1] == l_1[1]
+        assert np.allclose(l_1[2], l_2[2])
+        assert np.allclose(l_1[2], np.array([[1.,0.,], [1.,0.], [0.,1.],[1.,0.]]))
+        assert np.allclose(l_3[2], np.array([[1.,0.], [0.,1.]]))
+        assert np.allclose(l_4[2], l_1[2])
+        assert l_1[3] == (1., 0., 0.)
+        assert l_2[3] == (0., 1., 0.)
+        assert l_3[3] == (0., 0., 1.)
+        assert l_4[3] == (0.5, 0.25, 0.25)
+
+        label_loader = data.NodeLabelLoader(os.path.join(tmpdirname,
+                                                         'labels.csv'))
+        label_loader.addTrainSet([0,2], multilabel=True, separator=',')
+        label_loader.addValidSet(['node','label2'],
+                                 multilabel=True,
+                                 separator=',',
+                                 node_type='node')
+        label_loader.addTestSet(['node','label2'],
+                                 multilabel=True,
+                                 separator=',',
+                                 rows=[0,2],
+                                 node_type='node')
+        label_loader.addSet(['node','label2'],
+                            [0.5, 0.25, 0.25],
+                            multilabel=True,
+                            separator=',', rows=[0,1,2,3], node_type='nt')
+        l_1 = label_loader._labels[0]
+        l_2 = label_loader._labels[1]
+        l_3 = label_loader._labels[2]
+        l_4 = label_loader._labels[3]
+        assert l_1[0] == None
+        assert l_2[0] == 'node'
+        assert l_3[0] == 'node'
+        assert l_4[0] == 'nt'
+        assert l_1[1] == l_2[1]
+        assert l_1[1] == ['node1', 'node2', 'node3', 'node4']
+        assert l_3[1] == ['node1', 'node3']
+        assert l_4[1] == l_1[1]
+        assert np.allclose(l_1[2], l_2[2])
+        assert np.allclose(l_1[2], np.array([[1.,0.,0.,1.,0.,0.,0.],
+                                             [0.,0.,1.,1.,1.,0.,0.],
+                                             [1.,1.,0.,0.,0.,1.,0.],
+                                             [0.,0.,0.,0.,1.,0.,1.]]))
+        assert np.allclose(l_3[2], np.array([[1.,0.,1.,0.],
+                                             [1.,1.,0.,1.]]))
+        assert np.allclose(l_4[2], l_1[2])
+        assert l_1[3] == (1., 0., 0.)
+        assert l_2[3] == (0., 1., 0.)
+        assert l_3[3] == (0., 0., 1.)
+        assert l_4[3] == (0.5, 0.25, 0.25)
+
+def create_edge_labels(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_0{}node_1{}label1{}label2\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}node4{}A{}D,A\n".format(sep,sep,sep))
+    node_feat_f.write("node2{}node3{}A{}E,C,D\n".format(sep,sep,sep))
+    node_feat_f.write("node3{}node2{}C{}F,A,B\n".format(sep,sep,sep))
+    node_feat_f.write("node4{}node1{}A{}G,E\n".format(sep,sep,sep))
+    node_feat_f.close()
+
+def test_edge_label_loader():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_edge_labels(Path(tmpdirname), 'edge_labels.csv')
+        label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname,
+                                                         'edge_labels.csv'))
+        label_loader.addTrainSet([0,1,2])
+        label_loader.addValidSet(['node_0','node_1','label1'],
+                                 edge_type=('src','rel','dst'))
+        label_loader.addTestSet(['node_0','node_1','label1'],
+                                rows=[0,2],
+                                edge_type=('src','rel','dst'))
+        label_loader.addSet(['node_0','node_1','label1'],
+                            [0.5, 0.25, 0.25],
+                            rows=[0,1,2,3],
+                            edge_type=('src_n','rel_r','dst_n'))
+        l_1 = label_loader._labels[0]
+        l_2 = label_loader._labels[1]
+        l_3 = label_loader._labels[2]
+        l_4 = label_loader._labels[3]
+        assert l_1[0] == None
+        assert l_2[0] == ('src','rel','dst')
+        assert l_3[0] == ('src','rel','dst')
+        assert l_4[0] == ('src_n','rel_r','dst_n')
+        assert l_1[1] == l_2[1]
+        assert l_1[1] == ['node1', 'node2', 'node3', 'node4']
+        assert l_3[1] == ['node1', 'node3']
+        assert l_4[1] == l_1[1]
+        assert l_1[2] == l_2[2]
+        assert l_1[2] == ['node4', 'node3', 'node2', 'node1']
+        assert l_3[2] == ['node4', 'node2']
+        assert l_4[2] == l_1[2]
+        assert np.allclose(l_1[3], l_2[3])
+        assert np.allclose(l_1[3], np.array([[1.,0.,], [1.,0.], [0.,1.],[1.,0.]]))
+        assert np.allclose(l_3[3], np.array([[1.,0.], [0.,1.]]))
+        assert np.allclose(l_4[3], l_1[3])
+        assert l_1[4] == (1., 0., 0.)
+        assert l_2[4] == (0., 1., 0.)
+        assert l_3[4] == (0., 0., 1.)
+        assert l_4[4] == (0.5, 0.25, 0.25)
+
+        label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname,
+                                                         'edge_labels.csv'))
+        label_loader.addTrainSet([0,1,3], multilabel=True, separator=',')
+        label_loader.addValidSet(['node_0','node_1','label2'],
+                                 multilabel=True,
+                                 separator=',',
+                                 edge_type=('src','rel','dst'))
+        label_loader.addTestSet(['node_0','node_1','label2'],
+                                 multilabel=True,
+                                 separator=',',
+                                 rows=[0,2],
+                                 edge_type=('src','rel','dst'))
+        label_loader.addSet(['node_0','node_1','label2'],
+                            [0.5, 0.25, 0.25],
+                            multilabel=True,
+                            separator=',',
+                            rows=[0,1,2,3],
+                            edge_type=('src_n','rel_r','dst_n'))
+        l_1 = label_loader._labels[0]
+        l_2 = label_loader._labels[1]
+        l_3 = label_loader._labels[2]
+        l_4 = label_loader._labels[3]
+        assert l_1[0] == None
+        assert l_2[0] == ('src','rel','dst')
+        assert l_3[0] == ('src','rel','dst')
+        assert l_4[0] == ('src_n','rel_r','dst_n')
+        assert l_1[1] == l_2[1]
+        assert l_1[1] == ['node1', 'node2', 'node3', 'node4']
+        assert l_3[1] == ['node1', 'node3']
+        assert l_4[1] == l_1[1]
+        assert l_1[2] == l_2[2]
+        assert l_1[2] == ['node4', 'node3', 'node2', 'node1']
+        assert l_3[2] == ['node4', 'node2']
+        assert l_4[2] == l_1[2]
+        assert np.allclose(l_1[3], l_2[3])
+        assert np.allclose(l_1[3], np.array([[1.,0.,0.,1.,0.,0.,0.],
+                                             [0.,0.,1.,1.,1.,0.,0.],
+                                             [1.,1.,0.,0.,0.,1.,0.],
+                                             [0.,0.,0.,0.,1.,0.,1.]]))
+        assert np.allclose(l_3[3], np.array([[1.,0.,1.,0.],
+                                             [1.,1.,0.,1.]]))
+        assert np.allclose(l_4[3], l_1[3])
+        assert l_1[4] == (1., 0., 0.)
+        assert l_2[4] == (0., 1., 0.)
+        assert l_3[4] == (0., 0., 1.)
+        assert l_4[4] == (0.5, 0.25, 0.25)
+
+
 if __name__ == '__main__':
     #test_minigc()
     #test_data_hash()
 
-    test_row_normalize()
-    test_col_normalize()
-    test_float_row_normalize()
-    test_float_col_normalize()
-    test_float_col_maxmin_normalize()
+    #test_row_normalize()
+    #test_col_normalize()
+    #test_float_row_normalize()
+    #test_float_col_normalize()
+    #test_float_col_maxmin_normalize()
     #test_embed_word2vec()
 
     #test_parse_lang_feat()
-    #test_parse_category_feat()
-    test_parse_numerical_feat()
-    test_parse_numerical_multihot_feat()
+    test_parse_category_feat()
+    #test_parse_numerical_feat()
+    #test_parse_numerical_multihot_feat()
+
+    # test Feature Loader
+    test_node_category_feature_loader()
+    test_node_numerical_feature_loader()
+    #test_node_word2vec_feature_loader()
+    test_node_label_loader()
+    test_edge_label_loader()

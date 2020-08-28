@@ -1,4 +1,9 @@
 """ Classes for loading raw graph"""
+import os
+import csv
+
+from ..base import DGLError, dgl_warning
+from .utils import field2idx
 
 class EdgeLoader(object):
     r"""EdgeLoader allows users to define graph edges.
@@ -30,13 +35,13 @@ class EdgeLoader(object):
 
     * Currently, we only support raw csv file input.
 
-    * If eager_model is True, the loader will processing
+    * If eager_mode is True, the loader will processing
     the edges immediately after addXXXEdges
     is called. This will case extra performance overhead
     when merging multiple edge loaders together to
     build the DGLGraph.
 
-    * If eager_model if False, the edges are not
+    * If eager_mode if False, the edges are not
     processed until building the DGLGraph.
 
     Examples:
@@ -67,18 +72,18 @@ class EdgeLoader(object):
     >>> graphloader.appendLabel(label_loader)
 
     """
-    def __init__(input, separator='\t', has_head=False, int_id=False,
+    def __init__(input, separator='\t', has_head=True, int_id=False,
         eager_mode=False, verbose=False):
         if not os.path.exists(input):
             raise RuntimeError("File not exist {}".format(input))
 
-        assert self._eager_model, "Currently we do not support eager_model"
+        assert eager_mode is False, "Currently we do not support eager_mode"
 
         self._input = input
         self._separator = separator
         self._has_head = has_head
         self._int_id = int_id
-        self._eager_model = eager_mode
+        self._eager_mode = eager_mode
         self._verbose = verbose
         self._edges = []
 
@@ -154,19 +159,19 @@ class EdgeLoader(object):
                 assert self._has_head, \
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
-                reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                reader = csv.reader(csvfile)
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
                 cols = idx_cols
             else:
-                reader = csv.reader(csvfile, delimiter=self._separator)
+                reader = csv.reader(csvfile)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -176,6 +181,8 @@ class EdgeLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         src_nodes.append(line[cols[0]])
                         dst_nodes.append(line[cols[1]])
@@ -258,19 +265,19 @@ class EdgeLoader(object):
                 assert self._has_head, \
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
-                reader = csv.reader(csvfile, delimiter=self._separator)
-                heads = reader.next()
+                reader = csv.reader(csvfile)
+                heads = next(reader)
                 # find index of each target field name
-                idx_cols = _field2idx(cols, heads)
+                idx_cols = field2idx(cols, heads)
 
                 assert len(idx_cols) == len(cols), \
                     "one or more field names are not found in {}".format(self._input)
                 cols = idx_cols
             else:
-                reader = csv.reader(csvfile, delimiter=self._separator)
+                reader = csv.reader(csvfile)
                 if self._has_head:
                     # skip field name
-                    reader.next()
+                    next(reader)
 
             # fast path, all rows are used
             if rows is None:
@@ -284,6 +291,8 @@ class EdgeLoader(object):
             else:
                 row_idx = 0
                 for idx, line in enumerate(reader):
+                    if len(rows) == row_idx:
+                        break
                     if rows[row_idx] == idx:
                         rel_type = line[cols[3]]
                         if edges.has_key(rel_type):
