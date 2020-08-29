@@ -72,8 +72,8 @@ class EdgeLoader(object):
     >>> graphloader.appendLabel(label_loader)
 
     """
-    def __init__(input, separator='\t', has_head=True, int_id=False,
-        eager_mode=False, verbose=False):
+    def __init__(self, input, separator='\t', has_head=True, int_id=False,
+        eager_mode=False, encoding='utf-8', verbose=False):
         if not os.path.exists(input):
             raise RuntimeError("File not exist {}".format(input))
 
@@ -84,10 +84,11 @@ class EdgeLoader(object):
         self._has_head = has_head
         self._int_id = int_id
         self._eager_mode = eager_mode
+        self._encoding = encoding
         self._verbose = verbose
         self._edges = []
 
-    def addEdges(self, cols, rows=None, src_type=None, dst_type=None, edge_type=None):
+    def addEdges(self, cols, rows=None, edge_type=None):
         r""" Add edges into the graph
 
         Two columns of **input** are chosen, one for
@@ -110,16 +111,9 @@ class EdgeLoader(object):
             Which row(s) to load. None to load all.
             Default: None
 
-        src_type: str
-            Source node type. If None, default source node type is chosen.
-            Default: None
-
-        dst_type: str
-            Destination node type. If None, default destination node type is chosen.
-            Default: None
-
         edge_type: str
-            Edge type. If None, default edge type is choose.
+            Edge type. If None, default edge type is choose. Otherwise a tuple of
+            (src_type, relation_type, dst_type) should be provided.
             Default: None
 
         Example:
@@ -137,7 +131,7 @@ class EdgeLoader(object):
         ===  ===
 
         >>> edgeloader = dgl.data.EdgeLoader()
-        >>> edgeloader.addEdges(cols=["src", "dst"], src_type='user', dst_type='movie', edge_type='like')
+        >>> edgeloader.addEdges(cols=["src", "dst"], edge_type=('user', 'like', 'movie'))
 
         """
         if not isinstance(cols, list):
@@ -159,7 +153,7 @@ class EdgeLoader(object):
                 assert self._has_head, \
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
-                reader = csv.reader(csvfile)
+                reader = csv.reader(csvfile, delimiter=self._separator)
                 heads = next(reader)
                 # find index of each target field name
                 idx_cols = field2idx(cols, heads)
@@ -168,7 +162,7 @@ class EdgeLoader(object):
                     "one or more field names are not found in {}".format(self._input)
                 cols = idx_cols
             else:
-                reader = csv.reader(csvfile)
+                reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
                     next(reader)
@@ -189,10 +183,10 @@ class EdgeLoader(object):
                         row_idx += 1
                     # else skip this line
 
-        self._edges.append(edge_type, src_nodes, dst_nodes)
+        self._edges.append((edge_type, src_nodes, dst_nodes))
 
-    def addCategoryRelation(self, cols, rows=None, src_type=None, dst_type=None):
-        r"""Convert categorical features into edge relations
+    def addCategoryRelationEdge(self, cols, src_type, dst_type, rows=None):
+        r"""Convert categorical features as edge relations
 
         Three columns of the **input** are chosen, one for
         source node name, one for destination node name
@@ -215,16 +209,14 @@ class EdgeLoader(object):
             the second column is treated as destination node name and
             the third column is treated as edge category.
 
-        rows: numpy.array or list of int
-            Which row(s) to load. None to load all.
-            Default: None
-
         src_type: str
-            Source node type. If None, default source node type is chosen.
-            Default: None
+            Source node type.
 
         dst_type: str
-            Destination node type. If None, default destination node type is chosen.
+            Destination node type.
+
+        rows: numpy.array or list of int
+            Which row(s) to load. None to load all.
             Default: None
 
         Example:
@@ -242,21 +234,17 @@ class EdgeLoader(object):
         ====    ====    ========
 
         >>> edgeloader = dgl.data.EdgeLoader()
-        >>> edgeloader.addCategoryRelation(cols=["name", "rate", "movie"], src_type='user', dst_type='movie')
+        >>> edgeloader.addCategoryRelationEdge(cols=["name", "rate", "movie"], src_type='user', dst_type='movie')
 
         """
         if not isinstance(cols, list):
             raise DGLError("The cols should be a list of string or int")
 
         if len(cols) != 3:
-            raise DGLError("addCategoryRelation only accepts three columns " \
+            raise DGLError("addCategoryRelationEdge only accepts three columns " \
                            "the first column for source node, " \
                            "the second for destination node, " \
                            "and third for edge category")
-
-        if edge_type != None and len(edge_type) != 3:
-            raise DGLError("edge_type should be None or a tuple of " \
-                "(src_type, relation_type, dst_type)")
 
         edges = {}
         labels = []
@@ -265,7 +253,7 @@ class EdgeLoader(object):
                 assert self._has_head, \
                     "The column name is provided to identify the target column." \
                     "The input csv should have the head field"
-                reader = csv.reader(csvfile)
+                reader = csv.reader(csvfile, delimiter=self._separator)
                 heads = next(reader)
                 # find index of each target field name
                 idx_cols = field2idx(cols, heads)
@@ -274,7 +262,7 @@ class EdgeLoader(object):
                     "one or more field names are not found in {}".format(self._input)
                 cols = idx_cols
             else:
-                reader = csv.reader(csvfile)
+                reader = csv.reader(csvfile, delimiter=self._separator)
                 if self._has_head:
                     # skip field name
                     next(reader)
@@ -282,8 +270,8 @@ class EdgeLoader(object):
             # fast path, all rows are used
             if rows is None:
                 for line in reader:
-                    rel_type = line[cols[3]]
-                    if edges.has_key(rel_type):
+                    rel_type = line[cols[2]]
+                    if rel_type in edges:
                         edges[rel_type][0].append(line[cols[0]])
                         edges[rel_type][1].append(line[cols[1]])
                     else:
@@ -294,16 +282,16 @@ class EdgeLoader(object):
                     if len(rows) == row_idx:
                         break
                     if rows[row_idx] == idx:
-                        rel_type = line[cols[3]]
-                        if edges.has_key(rel_type):
+                        rel_type = line[cols[2]]
+                        if rel_type in edges:
                             edges[rel_type][0].append(line[cols[0]])
                             edges[rel_type][1].append(line[cols[1]])
                         else:
                             edges[rel_type] = ([line[cols[0]]], [line[cols[1]]])
                         row_idx += 1
                     # else skip this line
-        for key, val in edges:
-            self._edges.append((src_type, rel_type, dst_type), val[0], val[1])
+        for key, val in edges.items():
+            self._edges.append(((src_type, key, dst_type), val[0], val[1]))
 
 class GraphLoader(object):
     r""" Generate DGLGraph by parsing files.
@@ -400,28 +388,28 @@ class GraphLoader(object):
 
     @property
     def node_id_map(self):
-    """ Return mappings from internal node id to raw node id/name
+        """ Return mappings from internal node id to raw node id/name
 
-    Return
-    ------
-    dict of dict:
-        [node_type →  dict of [graph id(int) → raw node id(string/int)]
-    """
-    pass
+        Return
+        ------
+        dict of dict:
+            [node_type →  dict of [graph id(int) → raw node id(string/int)]
+        """
+        pass
 
     @property
     def label_map(self):
-    """ Return mapping from internal label id to original label
+        """ Return mapping from internal label id to original label
 
-    Return
-    ------
-    dict:
-        dict of [label id(int) → raw label(string/int)]
-    """
-    pass
+        Return
+        ------
+        dict:
+            dict of [label id(int) → raw label(string/int)]
+        """
+        pass
 
     @property
     def graph(self):
-    """ Return processed graph
-    """
-    return self._graph
+        """ Return processed graph
+        """
+        return self._graph

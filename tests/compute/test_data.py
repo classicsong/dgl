@@ -745,6 +745,7 @@ def create_word_node_feat(tmpdir, file_name, separator='\t'):
     node_feat_f.write("node3{}A{}C{}13\n".format(separator,separator,separator))
     node_feat_f.close()
 
+@unittest.skip("spacy language test is too heavy")
 def test_node_word2vec_feature_loader():
     import tempfile
     import spacy
@@ -1007,6 +1008,113 @@ def test_edge_label_loader():
         assert l_3[4] == (0., 0., 1.)
         assert l_4[4] == (0.5, 0.25, 0.25)
 
+def create_graph_edges(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_0{}node_1{}rel_1{}rel_2\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}node4{}A{}C\n".format(sep,sep,sep))
+    node_feat_f.write("node2{}node3{}A{}C\n".format(sep,sep,sep))
+    node_feat_f.write("node3{}node2{}A{}C\n".format(sep,sep,sep))
+    node_feat_f.write("node4{}node1{}A{}B\n".format(sep,sep,sep))
+    node_feat_f.write("node4{}node4{}A{}A\n".format(sep,sep,sep))
+    node_feat_f.close()
+
+def test_graph_loader():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_graph_edges(Path(tmpdirname), 'graphs.csv')
+        edge_loader = data.EdgeLoader(os.path.join(tmpdirname,
+                                                   'graphs.csv'))
+        edge_loader.addEdges([0,1])
+        edge_loader.addEdges(['node_0','node_1'])
+        edge_loader.addEdges(['node_0','node_1'],
+                             rows=np.array([1,2,3,4]),
+                             edge_type=('src', 'edge', 'dst'))
+        e_1 = edge_loader._edges[0]
+        e_2 = edge_loader._edges[1]
+        e_3 = edge_loader._edges[2]
+        assert e_1[0] == None
+        assert e_2[0] == None
+        assert e_3[0] == ('src','edge','dst')
+        assert e_1[1] == e_2[1]
+        assert e_1[1] == ['node1', 'node2', 'node3', 'node4', 'node4']
+        assert e_3[1] == ['node2', 'node3', 'node4', 'node4']
+        assert e_1[2] == e_2[2]
+        assert e_1[2] == ['node4', 'node3', 'node2', 'node1', 'node4']
+        assert e_3[2] == ['node3', 'node2', 'node1', 'node4']
+
+        edge_loader = data.EdgeLoader(os.path.join(tmpdirname,
+                                                   'graphs.csv'))
+        edge_loader.addCategoryRelationEdge([0,1,2],
+                                            src_type='src_t',
+                                            dst_type='dst_t')
+        edge_loader.addCategoryRelationEdge(['node_0','node_1','rel_1'],
+                                            src_type='src_t',
+                                            dst_type='dst_t')
+        edge_loader.addCategoryRelationEdge(['node_0','node_1','rel_1'],
+                                            rows=np.array([1,2,3,4]),
+                                            src_type='src',
+                                            dst_type='dst')
+        e_1 = edge_loader._edges[0]
+        e_2 = edge_loader._edges[1]
+        e_3 = edge_loader._edges[2]
+        assert e_1[0] == ('src_t','A','dst_t')
+        assert e_2[0] == ('src_t','A','dst_t')
+        assert e_3[0] == ('src','A','dst')
+        assert e_1[1] == e_2[1]
+        assert e_1[1] == ['node1', 'node2', 'node3', 'node4', 'node4']
+        assert e_3[1] == ['node2', 'node3', 'node4', 'node4']
+        assert e_1[2] == e_2[2]
+        assert e_1[2] == ['node4', 'node3', 'node2', 'node1', 'node4']
+        assert e_3[2] == ['node3', 'node2', 'node1', 'node4']
+
+        edge_loader = data.EdgeLoader(os.path.join(tmpdirname,
+                                                   'graphs.csv'))
+        edge_loader.addCategoryRelationEdge([0,1,3],
+                                            src_type='src_t',
+                                            dst_type='dst_t')
+        edge_loader.addCategoryRelationEdge(['node_0','node_1','rel_2'],
+                                            src_type='src_t',
+                                            dst_type='dst_t')
+        edge_loader.addCategoryRelationEdge(['node_0','node_1','rel_2'],
+                                            rows=np.array([1,2,3,4]),
+                                            src_type='src',
+                                            dst_type='dst')
+        e_1 = edge_loader._edges[0]
+        e_2 = edge_loader._edges[1]
+        e_3 = edge_loader._edges[2]
+        assert e_1[0] == ('src_t','C','dst_t')
+        assert e_2[0] == ('src_t','B','dst_t')
+        assert e_3[0] == ('src_t','A','dst_t')
+        e_4 = edge_loader._edges[3]
+        e_5 = edge_loader._edges[4]
+        e_6 = edge_loader._edges[5]
+        assert e_4[0] == ('src_t','C','dst_t')
+        assert e_5[0] == ('src_t','B','dst_t')
+        assert e_6[0] == ('src_t','A','dst_t')
+        assert e_1[1] == e_4[1]
+        assert e_2[1] == e_5[1]
+        assert e_3[1] == e_6[1]
+        assert e_1[1] == ['node1', 'node2', 'node3']
+        assert e_2[1] == ['node4']
+        assert e_3[1] == ['node4']
+        assert e_1[2] == e_4[2]
+        assert e_2[2] == e_5[2]
+        assert e_3[2] == e_6[2]
+        assert e_1[2] == ['node4', 'node3', 'node2']
+        assert e_2[2] == ['node1']
+        assert e_3[2] == ['node4']
+        e_7 = edge_loader._edges[6]
+        e_8 = edge_loader._edges[7]
+        e_9 = edge_loader._edges[8]
+        assert e_7[0] == ('src','C','dst')
+        assert e_8[0] == ('src','B','dst')
+        assert e_9[0] == ('src','A','dst')
+        assert e_7[1] == ['node2', 'node3']
+        assert e_8[1] == ['node4']
+        assert e_9[1] == ['node4']
+        assert e_7[2] == ['node3', 'node2']
+        assert e_8[2] == ['node1']
+        assert e_9[2] == ['node4']
 
 if __name__ == '__main__':
     #test_minigc()
@@ -1030,3 +1138,4 @@ if __name__ == '__main__':
     #test_node_word2vec_feature_loader()
     test_node_label_loader()
     test_edge_label_loader()
+    test_graph_loader()
