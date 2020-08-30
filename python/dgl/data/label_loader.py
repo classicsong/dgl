@@ -7,6 +7,17 @@ from ..base import DGLError, dgl_warning
 from .utils import parse_category_single_feat, parse_category_multi_feat
 from .utils import field2idx
 
+def split_idx(num_nids):
+    idx = np.arange(num_nids)
+    idx = np.random.shuffle(idx)
+    train_cnt = int(num_nids * train_split)
+    valid_cnt = int(num_nids * valid_split)
+    train_idx = idx[:train_cnt]
+    valid_idx = idx[train_cnt:train_cnt+valid_cnt]
+    test_idx = idx[train_cnt+valid_cnt:]
+
+    return train_idx, valid_idx, test_idx
+
 class NodeLabelLoader(object):
     r"""NabeLabelLoader allows users to define the grand truth of nodes and the
     train/valid/test targets.
@@ -143,6 +154,75 @@ class NodeLabelLoader(object):
         else:
             labels, label_map = parse_category_single_feat(labels, norm=None)
         return nodes, labels, label_map
+
+    def process(self, node_dicts):
+        """ Preparing nodes and labels for creating dgl graph.
+
+        Nodes are converted into consecutive integer ID spaces and
+        its corresponding labels are concatenated together.
+        """
+        results = {}
+        for raw_labels in self._labels:
+            node_type, nodes, labels, split = raw_labels
+            train_split, valid_split, test_split = split
+            if node_type in node_dicts:
+                nid_map = node_dicts[node_type]
+            else:
+                nid_map = {}
+                node_dicts[node_type] = nid_map
+
+            nids = []
+            for node in nodes:
+                nid = get_id(nid_map, node)
+                nids.append(nid)
+            nids = np.asarray(nids)
+
+            # only train
+            if train_split == 1.:
+                train_nids = nids
+                train_labels = labels
+                valid_nids, valid_labels = [],[]
+                test_nids, test_labels = [],[]
+            # only valid
+            elif valid_split == 1.:
+                train_nids, train_labels = [],[]
+                valid_nids = nids
+                valid_labels = labels
+                test_nids, test_labels = [],[]
+            # only test
+            elif test_split == 1.:
+                train_nids, train_labels = [],[]
+                valid_nids, valid_labels = [],[]
+                test_nids = nids
+                test_labels = labels
+            else:
+                num_nids = nids.shape[0]
+                train_idx, valid_idx, test_idx = split_idx(num_nids)
+                train_nids = nids[train_idx]
+                train_labels = labels[train_idx]
+                valid_nids = nids[valid_idx]
+                valid_labels = labels[valid_idx]
+                test_nids = nids[test_idx]
+                test_labels = labels[test_idx]
+
+            # chech if same node_type already exists
+            # if so concatenate the labels
+            if node_type in results:
+                last_train_nids, last_train_labels, \
+                last_valid_nids, last_valid_labels, \
+                last_test_nids, last_test_labels = results[node_type]
+
+                results[node_type] = (np.concatenate((last_train_nids, train_nids)),
+                                      np.concatenate((last_train_labels, train_labels)),
+                                      np.concatenate((last_valid_nids, valid_nids)),
+                                      np.concatenate((last_valid_labels, valid_labels)),
+                                      np.concatenate((last_test_nids, test_nids)),
+                                      np.concatenate((last_test_labels, test_labels)))
+            else:
+                results[node_type] = (train_nids, train_labels,
+                                      valid_nids, valid_labels,
+                                      test_nids, test_labels)
+        return results
 
     def addTrainSet(self, cols, multilabel=False, separator=None, rows=None, node_type=None):
         r"""Add Training Set.
@@ -446,6 +526,12 @@ class NodeLabelLoader(object):
                              labels,
                              (split_rate[0], split_rate[1], split_rate[2])))
 
+    @property
+    def node_label():
+        """ This is node label loader
+        """
+        return True
+
 class EdgeLabelLoader(object):
     r"""EdgeLabelLoader allows users to define the grand truth of nodes and the
     train/valid/test targets.
@@ -588,6 +674,103 @@ class EdgeLabelLoader(object):
                 labels = None
                 label_map = None
         return src_nodes, dst_nodes, labels, label_map
+
+    def process(self, node_dicts):
+        """ Preparing edges and labels for creating dgl graph.
+
+        Src nodes and dst nodes are converted into consecutive integer ID spaces and
+        its corresponding labels are concatenated together.
+        """
+        results = {}
+        for raw_labels in self._labels:
+            edge_type, src_nodes, dst_nodes, labels, split = raw_labels
+            train_split, valid_split, test_split = split
+            edge_type, src_nodes, dst_nodes = edges
+            if edge_type is None:
+                src_type = None
+                dst_type = None
+            else:
+                src_type, rel_type, dst_type = edge_type
+
+            # convert src node and dst node
+            if src_type in node_dicts:
+                snid_map = node_dicts[src_type]
+            else:
+                snid_map = {}
+                node_dicts[src_type] = snid_map
+
+            if dst_type in node_dicts:
+                dnid_map = node_dicts[dst_type]
+            else:
+                dnid_map = {}
+                node_dicts[dst_type] = dnid_map
+
+            snids = []
+            dnids = []
+            for node in src_nodes:
+                nid = get_id(snid_map, node)
+                snids.append(nid)
+            for node in dst_nodes:
+                nid = get_id(dnid_map, node)
+                dnids.append(nid)
+            snids = np.asarray(snids)
+            dnids = np.asarray(dnids)
+
+            # only train
+            if train_split == 1.:
+                train_snids = snids
+                train_dnids = dnids
+                train_labels = labels
+                valid_snids, valid_dnids, valid_labels = [],[],[]
+                test_snids, test_dnids, test_labels = [],[],[]
+            # only valid
+            elif valid_split == 1.:
+                train_snids, train_dnids, train_labels = [],[],[]
+                valid_snids = snids
+                valid_dnids = dnids
+                valid_labels = labels
+                test_snids, test_dnids, test_labels = [],[],[]
+            # only test
+            elif test_split == 1.:
+                train_snids, train_dnids, train_labels = [],[],[]
+                valid_snids, valid_dnids, valid_labels = [],[],[]
+                test_snids = snids
+                test_dnids = dnids
+                test_labels = labels
+            else:
+                num_nids = nids.shape[0]
+                train_idx, valid_idx, test_idx = split_idx(num_nids)
+                train_snids = snids[train_idx]
+                train_dnids = dnids[train_idx]
+                train_labels = labels[train_idx]
+                valid_snids = snids[valid_idx]
+                valid_dnids = dnids[valid_idx]
+                valid_labels = labels[valid_idx]
+                test_snids = snids[test_idx]
+                test_dnids = dnids[test_idx]
+                test_labels = labels[test_idx]
+
+            # chech if same node_type already exists
+            # if so concatenate the labels
+            if node_type in results:
+                last_train_snids, last_train_dnids, last_train_labels, \
+                last_valid_snids, last_valid_dnids, last_valid_labels, \
+                last_test_snids, last_test,dnids, last_test_labels = results[node_type]
+
+                results[node_type] = (np.concatenate((last_train_snids, train_snids)),
+                                      np.concatenate((last_train_dnids, train_dnids)),
+                                      np.concatenate((last_train_labels, train_labels)),
+                                      np.concatenate((last_valid_snids, valid_snids)),
+                                      np.concatenate((last_valid_dnids, valid_dnids)),
+                                      np.concatenate((last_valid_labels, valid_labels)),
+                                      np.concatenate((last_test_snids, test_snids)),
+                                      np.concatenate((last_test_dnids, test_dnids)),
+                                      np.concatenate((last_test_labels, test_labels)))
+            else:
+                results[node_type] = (train_snids, train_dnids, train_labels,
+                                      valid_snids, valid_dnids, valid_labels,
+                                      test_snids, test_dnids, test_labels)
+        return results
 
     def addTrainSet(self, cols, multilabel=False, separator=None, rows=None, edge_type=None):
         r"""Add Training Set.
@@ -982,3 +1165,9 @@ class EdgeLabelLoader(object):
                              dst_nodes,
                              labels,
                              (split_rate[0], split_rate[1], split_rate[2])))
+
+    @property
+    def node_label():
+        """ This is edge label loader
+        """
+        return False

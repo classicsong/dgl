@@ -736,6 +736,70 @@ def test_node_numerical_feature_loader():
                                      [0.,    0.,    0.,    1./4.]]),
                            f_3[2])
 
+def create_numerical_edge_feat(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_s{}node_d{}feat1\n".format(sep,sep))
+    node_feat_f.write("node1{}node4{}1.\n".format(sep,sep))
+    node_feat_f.write("node2{}node5{}2.\n".format(sep,sep))
+    node_feat_f.write("node3{}node6{}0.\n".format(sep,sep))
+    node_feat_f.write("node3{}node3{}4.\n".format(sep,sep))
+    node_feat_f.close()
+
+def test_edge_numerical_feature_loader():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_numerical_edge_feat(Path(tmpdirname), 'edge_numerical_feat.csv')
+
+        feat_loader = data.EdgeFeatureLoader(os.path.join(tmpdirname,
+                                                          'edge_numerical_feat.csv'))
+        feat_loader.addNumericalFeature([0, 1, 2])
+        feat_loader.addNumericalFeature(['node_s', 'node_d', 'feat1'],
+                                        norm='standard',
+                                        edge_type=('src', 'rel', 'dst'))
+        feat_loader.addNumericalFeature(['node_d', 'node_s', 'feat1'],
+                                        norm='min-max',
+                                        edge_type=('dst', 'rev-rel', 'src'))
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] is None
+        assert f_2[0] == ('src', 'rel', 'dst')
+        assert f_3[0] == ('dst', 'rev-rel', 'src')
+        assert f_1[1] == f_2[1]
+        assert f_1[1] == ['node1','node2','node3','node3']
+        assert f_3[1] == ['node4','node5','node6','node3']
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == ['node4','node5','node6','node3']
+        assert f_3[2] == ['node1','node2','node3','node3']
+        assert np.allclose(np.array([[1.],[2.],[0.],[4.]]),
+                           f_1[3])
+        assert np.allclose(np.array([[1./7.],[2./7.],[0.],[4./7.]]),
+                           f_2[3])
+        assert np.allclose(np.array([[1./4.],[2./4],[0.],[1.]]),
+                           f_3[3])
+        feat_loader.addNumericalFeature(['node_s', 'node_d', 'feat1'],
+                                        rows=[1,2,3],
+                                        norm='standard',
+                                        edge_type=('src', 'rel', 'dst'))
+        feat_loader.addNumericalFeature(['node_d', 'node_s', 'feat1'],
+                                        rows=[1,2,3],
+                                        norm='min-max',
+                                        edge_type=('dst', 'rev-rel', 'src'))
+        f_1 = feat_loader._raw_features[3]
+        f_2 = feat_loader._raw_features[4]
+        assert f_1[0] == ('src', 'rel', 'dst')
+        assert f_2[0] == ('dst', 'rev-rel', 'src')
+        assert f_1[1] == ['node2','node3','node3']
+        assert f_2[1] == ['node5','node6','node3']
+        assert f_1[2] == ['node5','node6','node3']
+        assert f_2[2] == ['node2','node3','node3']
+        assert np.allclose(np.array([[2./6.],[0.],[4./6.]]),
+                           f_1[3])
+        assert np.allclose(np.array([[2./4],[0.],[1.]]),
+                           f_2[3])
+
+
+
 def create_word_node_feat(tmpdir, file_name, separator='\t'):
     node_feat_f = open(os.path.join(tmpdir, file_name), "w")
     node_feat_f.write("node{}feat1{}feat2{}feat3\n".format(separator,separator,separator))
@@ -1018,7 +1082,7 @@ def create_graph_edges(tmpdir, file_name, sep='\t'):
     node_feat_f.write("node4{}node4{}A{}A\n".format(sep,sep,sep))
     node_feat_f.close()
 
-def test_graph_loader():
+def test_edge_loader():
     import tempfile
     with tempfile.TemporaryDirectory() as tmpdirname:
         create_graph_edges(Path(tmpdirname), 'graphs.csv')
@@ -1136,6 +1200,11 @@ if __name__ == '__main__':
     test_node_category_feature_loader()
     test_node_numerical_feature_loader()
     #test_node_word2vec_feature_loader()
+    test_edge_numerical_feature_loader()
+    # test Label Loader
     test_node_label_loader()
     test_edge_label_loader()
-    test_graph_loader()
+    # test Edge Loader
+    test_edge_loader()
+
+    # test feature process

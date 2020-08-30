@@ -374,6 +374,13 @@ def field2idx(cols, fields):
                 break
     return idx_cols
 
+def get_id(dict, key):
+    id = dict.get(key, None)
+    if id is None:
+        id = len(dict)
+        dict[key] = id
+    return id
+
 def row_normalize(features):
     mx = sp.csr_matrix(features, dtype=np.float32)
 

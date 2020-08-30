@@ -8,7 +8,7 @@ from .utils import parse_category_single_feat, parse_category_multi_feat
 from .utils import parse_numerical_feat
 from .utils import parse_numerical_multihot_feat
 from .utils import parse_word2vec_feature
-from .utils import field2idx
+from .utils import field2idx, get_id
 
 class NodeFeatureLoader(object):
     r"""Node feature loader class.
@@ -46,6 +46,9 @@ class NodeFeatureLoader(object):
     -----
 
     * Currently, we only support raw csv file input.
+
+    * Here we assume features created from different columns
+    are in the same order, thus we can concatenate them directly.
 
     * If eager_mode is True, the loader will processing
     the features immediately after addXXXFeature
@@ -103,6 +106,41 @@ class NodeFeatureLoader(object):
         self._encoding = encoding
         self._verbose = verbose
         self._raw_features = []
+
+    def process(self, node_dicts):
+        """ Preparing nodes and features for creating dgl graph.
+
+        Nodes are converted into consecutive integer ID spaces and
+        its corresponding features are concatenated together.
+        """
+        results = {}
+        for raw_feat in self._raw_features:
+            node_type, nodes, feats = raw_feat
+            if node_type in node_dicts:
+                nid_map = node_dicts[node_type]
+            else:
+                nid_map = {}
+                node_dicts[node_type] = nid_map
+
+            nids = []
+            for node in nodes:
+                nid = get_id(nid_map, node)
+                nids.append(nid)
+            nids = np.asarray(nids)
+
+            # chech if same node_type already exists
+            # if so concatenate the features.
+            if node_type in results:
+                last_nids, last_feats = result[node_type]
+                assert last_nids.shape[0] == nids.shape[0], \
+                    "Input features from different columns should have the same shape." \
+                    "but got {} vs. {}".format(last_nids.shape[0], nids.shape[0])
+                result[node_type] = (last_nids,
+                                     np.concatenate((last_feats, feats), axis=1))
+            else:
+                result[node_type] = (nids, feats)
+
+        return result
 
     def addCategoryFeature(self, cols, rows=None, norm=None, node_type=None):
         r"""Add categorical features for nodes
@@ -896,6 +934,12 @@ class NodeFeatureLoader(object):
         assert len(nodes) == feat.shape[0]
         self._raw_features.append((node_type, nodes, feat))
 
+    @property
+    def node_feat():
+        """ This is node feature loader
+        """
+        return True
+
 class EdgeFeatureLoader(object):
     r"""Edge feature loader
 
@@ -951,8 +995,8 @@ class EdgeFeatureLoader(object):
     >>> graphloader.appendFeature(edge_loader)
 
     """
-    def __init__(self, input,
-        separator='\t', has_head=False, int_id=False, eager_mode=False, verbose=False):
+    def __init__(self, input, separator='\t', has_head=True, int_id=False, eager_mode=False,
+        encoding='utf-8', verbose=False):
         if not os.path.exists(input):
             raise RuntimeError("File not exist {}".format(input))
 
@@ -963,69 +1007,127 @@ class EdgeFeatureLoader(object):
         self._has_head = has_head
         self._int_id = int_id
         self._eager_mode = eager_mode
+        self._encoding = encoding
         self._verbose = verbose
+        self._raw_features = []
+
+    def process(self, node_dicts):
+        """ Preparing edges and features for creating dgl graph.
+
+        Src and dst nodes are converted into consecutive integer ID spaces and
+        the edge features are concatenated together.
+        """
+        results = {}
+        for raw_feat in self._raw_features:
+            edge_type, src_nodes, dst_nodes, feat = raw_feat
+            src_type, rel_type, dst_type = edge_type
+            if src_type in node_dicts:
+                snid_map = node_dicts[src_type]
+            else:
+                snid_map = {}
+                node_dicts[src_type] = snid_map
+
+            if dst_type in node_dicts:
+                dnid_map = node_dicts[dst_type]
+            else:
+                dnid_map = {}
+                node_dicts[dst_type] = dnid_map
+
+            snids = []
+            dnids = []
+            for node in src_nodes:
+                nid = get_id(snid_map, node)
+                snids.append(nid)
+            for node in dst_nodes:
+                nid = get_id(dnid_map, node)
+                dnids.append(nid)
+            snids = np.asarray(snids)
+            dnids = np.asarray(dnids)
+
+            # chech if same node_type already exists
+            # if so concatenate the features.
+            if edge_type in results:
+                last_snids, last_dnids, last_feats = result[edge_type]
+                assert last_snids.shape[0] != snids.shape[0], \
+                    "Input features from different columns should have the same shape." \
+                    "but got {} vs. {}".format(last_snids.shape[0], snids.shape[0])
+                result[node_type] = (last_snids, last_dnids,
+                                     np.concatenate((last_feats, feats), axis=1))
+            else:
+                result[edge_type] = (snids, dnids, feats)
+        return result
 
     def addNumericalFeature(self, cols, rows=None, norm=None, edge_type=None):
-        r"""NabeLabelLoader allows users to define the training target or the grand truth of nodes.
+        r"""Add numerical features for nodes
+
+        Three columns of the **input** are chosen, one for
+        source node name, one for destination node name
+        and the last for numbers. The numbers are
+        treated as floats.
 
         Parameters
         ----------
-        input: str
-            Data source, for the csv file input,
-            it should be a string of file path
-        separator: str
-            Delimiter(separator) used in csv file.
-            Default: '\t'
-        has_header: bool
-            Whether the input data has col name.
-            Default: False
-        int_id: bool
-            Whether the raw node id is an int,
-            this can help speed things up.
-            Default: False
-        eager_mode: bool
-            Whether to use eager parse mode.
-            See **Note** for more details.
-            Default: False
+        cols: list of str or int
+            Which columns to use. Supported data formats are
 
-        Note:
+            (1) [str, str, str] column names for node and numerical data.
+            The first column is treated as source node name,
+            the second column is treated as destination node name and
+            the third column is treated as numerical data.
+            (2) [int, int, int] column numbers for node and numerical data.
+            The first column is treated as source node name,
+            the second column is treated as destination node name and
+            the third column is treated as numerical data.
 
-        * Currently, we only support raw csv file input.
+        rows: numpy.array or list of int
+            Which row(s) to load. None to load all.
+            Default: None
 
-        * If eager_mode is True, the loader will processing
-        the labels immediately after addXXXSet
-        is called. This will case extra performance overhead
-        when merging multiple label loaders together to
-        build the DGLGraph.
+        norm: str
+            Which kind of normalization is applied to the features.
+            Supported normalization ops are
 
-        * If eager_mode if False, the labels are not
-        processed until building the DGLGraph.
+            (1) None, do nothing.
+            (2) `standard`:
 
-        Examples:
+            .. math::
+                norm_i = \frac{x_i}{\sum_{i=0}^N{x_i}}
 
-        ** Creat a FeatureLoader to load user features from u.csv.**
+            (3) `min-max`:
 
-        >>> user_loader = dgl.data.FeatureLoader(input='u.csv',
-                                                separator="|")
-        >>> user_loader.addCategoryFeature(cols=["id", "gender"], node_type='user')
+            .. math::
+                norm_i = \frac{x_i - min(x[:])}{max(x[:])-min(x[:])}
 
-        ** create node label loader to load labels **
+            Default: None
 
-        >>> label_loader = dgl.data.NodeLabelLoader(input='label.csv',
-                                                    separator="|")
-        >>> label_loader.addTrainSet([0, 1], rows=np.arange(start=0,
-                                                            stop=100))
+        edge_type: triple of str
+            Canonical edge type, should be in format of (src_type, rel_type, dst_type).
+            If None, default canonical edge type is chosen.
+            Default: None
 
-        ** Append features into graph loader **
-        >>> graphloader = dgl.data.GraphLoader()
-        >>> graphloader.appendFeature(user_loader)
-        >>> graphloader.appendLabel(label_loader)
+        Example:
 
+        ** Load numerical features **
+
+        Example data of data.csv is as follows:
+
+        ====    ========  ====
+        name    movie     rate
+        ====    ========  ====
+        John    StarWar1  5.0
+        Tim     X-Man     3.5
+        Maggy   StarWar1  4.5
+        ====    ========  ====
+
+        >>> user_loader = dgl.data.FeatureLoader(input='data.csv',
+                                                    separator="|",
+                                                    has_head=True)
+        >>> user_loader.addNumericalFeature(cols=["name", "movie", "rate"])
         """
         if not isinstance(cols, list):
             raise DGLError("The cols should be a list of string or int")
 
-        if len(cols) == 3:
+        if len(cols) != 3:
             raise DGLError("addNumericalFeature only accept three columns, " \
                 "first two for source and destination nodes, " \
                 "the last for numerical data")
@@ -1075,12 +1177,19 @@ class EdgeFeatureLoader(object):
                         src_nodes.append(line[cols[0]])
                         dst_nodes.append(line[cols[1]])
 
+                        row_f = []
                         for i in range(2, len(cols)):
                             row_f.append(float(line[cols[i]]))
                         features.append(row_f)
                         row_idx += 1
                     # else skip this line
 
-        feat = parse_numerical_feat(features, norm=None)
+        feat = parse_numerical_feat(features, norm=norm)
         assert len(src_nodes) == feat.shape[0]
         self._raw_features.append((edge_type, src_nodes, dst_nodes, feat))
+
+    @property
+    def node_feat():
+        """ This is edge feature loader
+        """
+        return False

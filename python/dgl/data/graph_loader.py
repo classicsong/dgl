@@ -88,6 +88,54 @@ class EdgeLoader(object):
         self._verbose = verbose
         self._edges = []
 
+    def process(self, node_dicts):
+        """ preparing edges for creating dgl graph.
+
+        Src and dst nodes are converted into consecutive integer ID spaces
+        """
+        results = {}
+        for edges in self._edges:
+            edge_type, src_nodes, dst_nodes = edges
+            if edge_type is None:
+                src_type = None
+                dst_type = None
+            else:
+                src_type, rel_type, dst_type = edge_type
+
+            # convert src node and dst node
+            if src_type in node_dicts:
+                snid_map = node_dicts[src_type]
+            else:
+                snid_map = {}
+                node_dicts[src_type] = snid_map
+
+            if dst_type in node_dicts:
+                dnid_map = node_dicts[dst_type]
+            else:
+                dnid_map = {}
+                node_dicts[dst_type] = dnid_map
+
+            snids = []
+            dnids = []
+            for node in src_nodes:
+                nid = get_id(snid_map, node)
+                snids.append(nid)
+            for node in dst_nodes:
+                nid = get_id(dnid_map, node)
+                dnids.append(nid)
+            snids = np.asarray(snids)
+            dnids = np.asarray(dnids)
+
+            # chech if same node_type already exists
+            # if so concatenate the edges.
+            if edge_type in results:
+                last_snids, last_dnids = result[edge_type]
+                result[edge_type] = (np.concatenate((last_snids, snids)),
+                                     np.concatenate((last_dnids, dnids)))
+            else:
+                result[edge_type] = (snids, dnids)
+        return result
+
     def addEdges(self, cols, rows=None, edge_type=None):
         r""" Add edges into the graph
 
@@ -356,6 +404,7 @@ class GraphLoader(object):
 
         self._graph = None
         self._verbose = verbose
+        self._node_dict = {}
 
     def appendEdge(self, edge_loader):
         if not isinstance(edge_loader, EdgeLoader):
@@ -378,7 +427,20 @@ class GraphLoader(object):
         pass
 
     def process(self):
-        pass
+        for feat_loader in self._feature_loader:
+            if feat_loader.node_feat:
+                node_feat_result = feat_loader.process(self._node_dict)
+            else:
+                edge_feat_result = feat_loader.process(self._node_dict)
+
+        for edge_loader in self._edge_loader:
+            edge_result = edge_loader.process(self._node_dict)
+
+        for label_loader in self._label_loader:
+            if label_loader.node_label:
+                node, label = label_loader.process(self._node_dict)
+            else:
+                s_node, d_node, label = label_loader.process(self._node_dict)
 
     def save(self, path=None):
         pass
