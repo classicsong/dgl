@@ -3,6 +3,8 @@
 import os
 import csv
 
+import numpy as np
+
 from ..base import DGLError, dgl_warning
 from .utils import parse_category_single_feat, parse_category_multi_feat
 from .utils import field2idx

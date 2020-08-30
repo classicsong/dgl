@@ -1180,6 +1180,149 @@ def test_edge_loader():
         assert e_8[2] == ['node1']
         assert e_9[2] == ['node4']
 
+def create_multiple_node_feat(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}feat1{}feat2{}feat3\n".format(separator,separator,separator))
+    node_feat_f.write("node1{}A{}0.1{}A,B\n".format(separator,separator,separator))
+    node_feat_f.write("node2{}A{}0.3{}A\n".format(separator,separator,separator))
+    node_feat_f.write("node3{}C{}0.2{}C,B\n".format(separator,separator,separator))
+    node_feat_f.write("node4{}A{}-1.1{}A,C\n".format(separator,separator,separator))
+    node_feat_f.close()
+
+def test_node_feature_process():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_multiple_node_feat(Path(tmpdirname), 'node_feat.csv')
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_feat.csv'))
+        feat_loader.addNumericalFeature([0,2],norm='standard')
+        feat_loader.addCategoryFeature([0,1])
+        feat_loader.addMultiCategoryFeature([0,3], separator=',')
+
+        node_dicts = {}
+        result = feat_loader.process(node_dicts)
+        assert len(result) == 1
+        nids, feats = result[None]
+        assert np.allclose(np.array([0,1,2,3]), nids)
+        assert np.allclose(np.concatenate([np.array([[0.1/1.7],[0.3/1.7],[0.2/1.7],[-1.1/1.7]]),
+                                           np.array([[1.,0.],[1.,0.],[0.,1.],[1.,0.]]),
+                                           np.array([[1.,1.,0.],[1.,0.,0.],[0.,1.,1.],[1.,0.,1.]])],
+                                           axis=1),
+                           feats)
+        assert node_dicts[None]['node1'] == 0
+        assert node_dicts[None]['node2'] == 1
+        assert node_dicts[None]['node3'] == 2
+        assert node_dicts[None]['node4'] == 3
+        node_dicts = {None: {'node1':3,
+                             'node2':2,
+                             'node3':1,
+                             'node4':0}}
+        result = feat_loader.process(node_dicts)
+        nids, feats = result[None]
+        assert np.allclose(np.array([3,2,1,0]), nids)
+        assert np.allclose(np.concatenate([np.array([[0.1/1.7],[0.3/1.7],[0.2/1.7],[-1.1/1.7]]),
+                                           np.array([[1.,0.],[1.,0.],[0.,1.],[1.,0.]]),
+                                           np.array([[1.,1.,0.],[1.,0.,0.],[0.,1.,1.],[1.,0.,1.]])],
+                                           axis=1),
+                           feats)
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_feat.csv'))
+        feat_loader.addCategoryFeature(['node','feat1'], node_type='n1')
+        feat_loader.addMultiCategoryFeature(['node','feat3'], separator=',', node_type='n1')
+        feat_loader.addNumericalFeature(['node','feat2'], norm='standard', node_type='n2')
+        node_dicts = {'n2':{'node1':3,
+                             'node2':2,
+                             'node3':1,
+                             'node4':0}}
+        result = feat_loader.process(node_dicts)
+        assert len(result) == 2
+        assert len(node_dicts) == 2
+        nids, feats = result['n1']
+        assert np.allclose(np.array([0,1,2,3]), nids)
+        assert np.allclose(np.concatenate([np.array([[1.,0.],[1.,0.],[0.,1.],[1.,0.]]),
+                                           np.array([[1.,1.,0.],[1.,0.,0.],[0.,1.,1.],[1.,0.,1.]])],
+                                           axis=1),
+                           feats)
+        nids, feats = result['n2']
+        assert np.allclose(np.array([3,2,1,0]), nids)
+        assert np.allclose(np.array([[0.1/1.7],[0.3/1.7],[0.2/1.7],[-1.1/1.7]]),
+                           feats)
+
+def create_multiple_edge_feat(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_s{}node_d{}feat1{}feat2{}feat3\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node1{}node_a{}0.2{}0.1{}1.1\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node2{}node_b{}-0.3{}0.3{}1.2\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node3{}node_c{}0.3{}0.2{}-1.2\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node4{}node_d{}-0.2{}-1.1{}0.9\n".format(sep,sep,sep,sep))
+    node_feat_f.close()
+
+def test_edge_feature_process():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_multiple_edge_feat(Path(tmpdirname), 'edge_feat.csv')
+
+        feat_loader = data.EdgeFeatureLoader(os.path.join(tmpdirname,
+                                                          'edge_feat.csv'))
+        feat_loader.addNumericalFeature([0,1,2],norm='standard')
+        feat_loader.addNumericalFeature([0,1,3],norm='min-max')
+        feat_loader.addNumericalFeature([0,1,4])
+        node_dicts = {}
+        result = feat_loader.process(node_dicts)
+        assert len(result) == 1
+        snids, dnids, feats = result[None]
+        assert np.allclose(np.array([0,1,2,3]), snids)
+        assert np.allclose(np.array([4,5,6,7]), dnids)
+        assert np.allclose(np.concatenate([np.array([[0.2/1.0],[-0.3/1.0],[0.3/1.0],[-0.2/1.0]]),
+                                           np.array([[1.2/1.4],[1.0],[1.3/1.4],[0.]]),
+                                           np.array([[1.1],[1.2],[-1.2],[0.9]])],
+                                           axis=1),
+                           feats)
+        assert node_dicts[None]['node1'] == 0
+        assert node_dicts[None]['node2'] == 1
+        assert node_dicts[None]['node3'] == 2
+        assert node_dicts[None]['node4'] == 3
+        node_dicts = {None: {'node1':3,
+                             'node2':2,
+                             'node3':1,
+                             'node4':0}}
+        result = feat_loader.process(node_dicts)
+        snids, dnids, feats = result[None]
+        assert np.allclose(np.array([3,2,1,0]), snids)
+        assert np.allclose(np.array([4,5,6,7]), dnids)
+        assert np.allclose(np.concatenate([np.array([[0.2/1.0],[-0.3/1.0],[0.3/1.0],[-0.2/1.0]]),
+                                           np.array([[1.2/1.4],[1.0],[1.3/1.4],[0.]]),
+                                           np.array([[1.1],[1.2],[-1.2],[0.9]])],
+                                           axis=1),
+                           feats)
+
+        feat_loader = data.EdgeFeatureLoader(os.path.join(tmpdirname,
+                                                          'edge_feat.csv'))
+        feat_loader.addNumericalFeature([0,1,2],norm='standard',edge_type=('n0','r0','n1'))
+        feat_loader.addNumericalFeature([0,1,3],norm='min-max',edge_type=('n0','r0','n1'))
+        feat_loader.addNumericalFeature([0,1,4],edge_type=('n1','r1','n0'))
+        node_dicts = {'n0':{'node1':3,
+                             'node2':2,
+                             'node3':1,
+                             'node4':0}}
+        result = feat_loader.process(node_dicts)
+        assert len(result) == 2
+        snids, dnids, feats = result[('n0','r0','n1')]
+        assert np.allclose(np.array([3,2,1,0]), snids)
+        assert np.allclose(np.array([0,1,2,3]), dnids)
+        assert np.allclose(np.concatenate([np.array([[0.2/1.0],[-0.3/1.0],[0.3/1.0],[-0.2/1.0]]),
+                                           np.array([[1.2/1.4],[1.0],[1.3/1.4],[0.]])],
+                                           axis=1),
+                           feats)
+        snids, dnids, feats = result[('n1','r1','n0')]
+        assert np.allclose(np.array([4,5,6,7]), snids)
+        assert np.allclose(np.array([4,5,6,7]), dnids)
+        assert np.allclose(np.array([[1.1],[1.2],[-1.2],[0.9]]),
+                           feats)
+
+
 if __name__ == '__main__':
     #test_minigc()
     #test_data_hash()
@@ -1208,3 +1351,5 @@ if __name__ == '__main__':
     test_edge_loader()
 
     # test feature process
+    test_node_feature_process()
+    test_edge_feature_process()

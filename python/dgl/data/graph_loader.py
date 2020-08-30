@@ -2,6 +2,8 @@
 import os
 import csv
 
+import numpy as np
+
 from ..base import DGLError, dgl_warning
 from .utils import field2idx
 

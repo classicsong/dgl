@@ -2,6 +2,7 @@
 
 import os
 import csv
+import numpy as np
 
 from ..base import DGLError, dgl_warning
 from .utils import parse_category_single_feat, parse_category_multi_feat
@@ -131,16 +132,16 @@ class NodeFeatureLoader(object):
             # chech if same node_type already exists
             # if so concatenate the features.
             if node_type in results:
-                last_nids, last_feats = result[node_type]
+                last_nids, last_feats = results[node_type]
                 assert last_nids.shape[0] == nids.shape[0], \
                     "Input features from different columns should have the same shape." \
                     "but got {} vs. {}".format(last_nids.shape[0], nids.shape[0])
-                result[node_type] = (last_nids,
+                results[node_type] = (last_nids,
                                      np.concatenate((last_feats, feats), axis=1))
             else:
-                result[node_type] = (nids, feats)
+                results[node_type] = (nids, feats)
 
-        return result
+        return results
 
     def addCategoryFeature(self, cols, rows=None, norm=None, node_type=None):
         r"""Add categorical features for nodes
@@ -1019,8 +1020,12 @@ class EdgeFeatureLoader(object):
         """
         results = {}
         for raw_feat in self._raw_features:
-            edge_type, src_nodes, dst_nodes, feat = raw_feat
-            src_type, rel_type, dst_type = edge_type
+            edge_type, src_nodes, dst_nodes, feats = raw_feat
+            if edge_type is None:
+                src_type = None
+                dst_type = None
+            else:
+                src_type, rel_type, dst_type = edge_type
             if src_type in node_dicts:
                 snid_map = node_dicts[src_type]
             else:
@@ -1044,18 +1049,18 @@ class EdgeFeatureLoader(object):
             snids = np.asarray(snids)
             dnids = np.asarray(dnids)
 
-            # chech if same node_type already exists
+            # chech if same edge_type already exists
             # if so concatenate the features.
             if edge_type in results:
-                last_snids, last_dnids, last_feats = result[edge_type]
-                assert last_snids.shape[0] != snids.shape[0], \
+                last_snids, last_dnids, last_feats = results[edge_type]
+                assert last_snids.shape[0] == snids.shape[0], \
                     "Input features from different columns should have the same shape." \
                     "but got {} vs. {}".format(last_snids.shape[0], snids.shape[0])
-                result[node_type] = (last_snids, last_dnids,
+                results[edge_type] = (last_snids, last_dnids,
                                      np.concatenate((last_feats, feats), axis=1))
             else:
-                result[edge_type] = (snids, dnids, feats)
-        return result
+                results[edge_type] = (snids, dnids, feats)
+        return results
 
     def addNumericalFeature(self, cols, rows=None, norm=None, edge_type=None):
         r"""Add numerical features for nodes
