@@ -7,11 +7,11 @@ import numpy as np
 
 from ..base import DGLError, dgl_warning
 from .utils import parse_category_single_feat, parse_category_multi_feat
-from .utils import field2idx
+from .utils import field2idx, get_id
 
-def split_idx(num_nids):
+def split_idx(num_nids, train_split, valid_split, test_split):
     idx = np.arange(num_nids)
-    idx = np.random.shuffle(idx)
+    np.random.shuffle(idx)
     train_cnt = int(num_nids * train_split)
     valid_cnt = int(num_nids * valid_split)
     train_idx = idx[:train_cnt]
@@ -183,23 +183,24 @@ class NodeLabelLoader(object):
             if train_split == 1.:
                 train_nids = nids
                 train_labels = labels
-                valid_nids, valid_labels = [],[]
-                test_nids, test_labels = [],[]
+                valid_nids, valid_labels = None, None
+                test_nids, test_labels = None, None
             # only valid
             elif valid_split == 1.:
-                train_nids, train_labels = [],[]
+                train_nids, train_labels = None, None
                 valid_nids = nids
                 valid_labels = labels
-                test_nids, test_labels = [],[]
+                test_nids, test_labels = None, None
             # only test
             elif test_split == 1.:
-                train_nids, train_labels = [],[]
-                valid_nids, valid_labels = [],[]
+                train_nids, train_labels = None, None
+                valid_nids, valid_labels = None, None
                 test_nids = nids
                 test_labels = labels
             else:
                 num_nids = nids.shape[0]
-                train_idx, valid_idx, test_idx = split_idx(num_nids)
+                train_idx, valid_idx, test_idx = \
+                    split_idx(num_nids, train_split, valid_split, test_split)
                 train_nids = nids[train_idx]
                 train_labels = labels[train_idx]
                 valid_nids = nids[valid_idx]
@@ -214,12 +215,24 @@ class NodeLabelLoader(object):
                 last_valid_nids, last_valid_labels, \
                 last_test_nids, last_test_labels = results[node_type]
 
-                results[node_type] = (np.concatenate((last_train_nids, train_nids)),
-                                      np.concatenate((last_train_labels, train_labels)),
-                                      np.concatenate((last_valid_nids, valid_nids)),
-                                      np.concatenate((last_valid_labels, valid_labels)),
-                                      np.concatenate((last_test_nids, test_nids)),
-                                      np.concatenate((last_test_labels, test_labels)))
+                results[node_type] = (train_nids if last_train_nids is None else \
+                                        last_train_nids if train_nids is None else \
+                                            np.concatenate((last_train_nids, train_nids)),
+                                      train_labels if last_train_labels is None else \
+                                        last_train_labels if train_labels is None else \
+                                            np.concatenate((last_train_labels, train_labels)),
+                                      valid_nids if last_valid_nids is None else \
+                                        last_valid_nids if valid_nids is None else \
+                                            np.concatenate((last_valid_nids, valid_nids)),
+                                      valid_labels if last_valid_labels is None else \
+                                        last_valid_labels if valid_labels is None else \
+                                            np.concatenate((last_valid_labels, valid_labels)),
+                                      test_nids if last_test_nids is None else \
+                                        last_test_nids if test_nids is None else \
+                                            np.concatenate((last_test_nids, test_nids)),
+                                      test_labels if last_test_labels is None else \
+                                        last_test_labels if test_labels is None else \
+                                            np.concatenate((last_test_labels, test_labels)))
             else:
                 results[node_type] = (train_nids, train_labels,
                                       valid_nids, valid_labels,
@@ -529,10 +542,16 @@ class NodeLabelLoader(object):
                              (split_rate[0], split_rate[1], split_rate[2])))
 
     @property
-    def node_label():
+    def node_label(self):
         """ This is node label loader
         """
         return True
+
+    @property
+    def label_map(self):
+        """ Get the label map
+        """
+        return self._label_map
 
 class EdgeLabelLoader(object):
     r"""EdgeLabelLoader allows users to define the grand truth of nodes and the
@@ -584,10 +603,10 @@ class EdgeLabelLoader(object):
 
     ** create node label loader to load labels **
 
-    >>> label_loader = dgl.data.NodeLabelLoader(input='label.csv',
+    >>> label_loader = dgl.data.EdgeLabelLoader(input='label.csv',
                                                 separator="|")
-    >>> label_loader.addTrainSet([0, 1], rows=np.arange(start=0,
-                                                        stop=100))
+    >>> label_loader.addTrainSet([0, 1, 2], rows=np.arange(start=0,
+                                                           stop=100))
 
     ** Append features into graph loader **
     >>> graphloader = dgl.data.GraphLoader()
@@ -687,7 +706,6 @@ class EdgeLabelLoader(object):
         for raw_labels in self._labels:
             edge_type, src_nodes, dst_nodes, labels, split = raw_labels
             train_split, valid_split, test_split = split
-            edge_type, src_nodes, dst_nodes = edges
             if edge_type is None:
                 src_type = None
                 dst_type = None
@@ -723,53 +741,75 @@ class EdgeLabelLoader(object):
                 train_snids = snids
                 train_dnids = dnids
                 train_labels = labels
-                valid_snids, valid_dnids, valid_labels = [],[],[]
-                test_snids, test_dnids, test_labels = [],[],[]
+                valid_snids, valid_dnids, valid_labels = None, None, None
+                test_snids, test_dnids, test_labels = None, None, None
             # only valid
             elif valid_split == 1.:
-                train_snids, train_dnids, train_labels = [],[],[]
+                train_snids, train_dnids, train_labels = None, None, None
                 valid_snids = snids
                 valid_dnids = dnids
                 valid_labels = labels
-                test_snids, test_dnids, test_labels = [],[],[]
+                test_snids, test_dnids, test_labels = None, None, None
             # only test
             elif test_split == 1.:
-                train_snids, train_dnids, train_labels = [],[],[]
-                valid_snids, valid_dnids, valid_labels = [],[],[]
+                train_snids, train_dnids, train_labels = None, None, None
+                valid_snids, valid_dnids, valid_labels = None, None, None
                 test_snids = snids
                 test_dnids = dnids
                 test_labels = labels
             else:
-                num_nids = nids.shape[0]
-                train_idx, valid_idx, test_idx = split_idx(num_nids)
+                num_nids = snids.shape[0]
+                train_idx, valid_idx, test_idx = \
+                    split_idx(num_nids, train_split, valid_split, test_split)
                 train_snids = snids[train_idx]
                 train_dnids = dnids[train_idx]
-                train_labels = labels[train_idx]
                 valid_snids = snids[valid_idx]
                 valid_dnids = dnids[valid_idx]
-                valid_labels = labels[valid_idx]
                 test_snids = snids[test_idx]
                 test_dnids = dnids[test_idx]
-                test_labels = labels[test_idx]
+                if len(labels) > 0:
+                    train_labels = labels[train_idx]
+                    valid_labels = labels[valid_idx]
+                    test_labels = labels[test_idx]
+                else:
+                    train_labels, valid_labels, test_labels = None, None, None
 
-            # chech if same node_type already exists
+            # chech if same edge_type already exists
             # if so concatenate the labels
-            if node_type in results:
+            if edge_type in results:
                 last_train_snids, last_train_dnids, last_train_labels, \
                 last_valid_snids, last_valid_dnids, last_valid_labels, \
-                last_test_snids, last_test,dnids, last_test_labels = results[node_type]
+                last_test_snids, last_test_dnids, last_test_labels = results[edge_type]
 
-                results[node_type] = (np.concatenate((last_train_snids, train_snids)),
-                                      np.concatenate((last_train_dnids, train_dnids)),
-                                      np.concatenate((last_train_labels, train_labels)),
-                                      np.concatenate((last_valid_snids, valid_snids)),
-                                      np.concatenate((last_valid_dnids, valid_dnids)),
-                                      np.concatenate((last_valid_labels, valid_labels)),
-                                      np.concatenate((last_test_snids, test_snids)),
-                                      np.concatenate((last_test_dnids, test_dnids)),
-                                      np.concatenate((last_test_labels, test_labels)))
+                results[edge_type] = (train_snids if last_train_snids is None else \
+                                        last_train_snids if train_snids is None else \
+                                            np.concatenate((last_train_snids, train_snids)),
+                                      train_dnids if last_train_dnids is None else \
+                                        last_train_dnids if train_dnids is None else \
+                                            np.concatenate((last_train_dnids, train_dnids)),
+                                      train_labels if last_train_labels is None else \
+                                        last_train_labels if train_labels is None else \
+                                            np.concatenate((last_train_labels, train_labels)),
+                                      valid_snids if last_valid_snids is None else \
+                                        last_valid_snids if valid_snids is None else \
+                                            np.concatenate((last_valid_snids, valid_snids)),
+                                      valid_dnids if last_valid_dnids is None else \
+                                        last_valid_dnids if valid_dnids is None else \
+                                            np.concatenate((last_valid_dnids, valid_dnids)),
+                                      valid_labels if last_valid_labels is None else \
+                                        last_valid_labels if valid_labels is None else \
+                                        np.concatenate((last_valid_labels, valid_labels)),
+                                      test_snids if last_test_snids is None else \
+                                        last_test_snids if test_snids is None else \
+                                            np.concatenate((last_test_snids, test_snids)),
+                                      test_dnids if last_test_dnids is None else \
+                                        last_test_dnids if test_dnids is None else \
+                                            np.concatenate((last_test_dnids, test_dnids)),
+                                      test_labels if last_test_labels is None else \
+                                        last_test_labels if test_labels is None else \
+                                             np.concatenate((last_test_labels, test_labels)))
             else:
-                results[node_type] = (train_snids, train_dnids, train_labels,
+                results[edge_type] = (train_snids, train_dnids, train_labels,
                                       valid_snids, valid_dnids, valid_labels,
                                       test_snids, test_dnids, test_labels)
         return results
@@ -860,9 +900,10 @@ class EdgeLabelLoader(object):
 
         src_nodes, dst_nodes, labels, label_map = \
             self._load_labels(cols, multilabel, separator, rows)
-        assert len(src_nodes) == labels.shape[0], \
-            'Train nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
-                                                                       labels.shape[0])
+        if len(cols) == 3:
+            assert len(src_nodes) == labels.shape[0], \
+                'Train nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
+                                                                        labels.shape[0])
         self._set_label_map(label_map)
         self._labels.append((edge_type,
                              src_nodes,
@@ -956,9 +997,10 @@ class EdgeLabelLoader(object):
 
         src_nodes, dst_nodes, labels, label_map = \
             self._load_labels(cols, multilabel, separator, rows)
-        assert len(src_nodes) == labels.shape[0], \
-            'Valid nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
-                                                                       labels.shape[0])
+        if len(cols) == 3:
+            assert len(src_nodes) == labels.shape[0], \
+                'Valid nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
+                                                                        labels.shape[0])
         self._set_label_map(label_map)
         self._labels.append((edge_type,
                              src_nodes,
@@ -1051,9 +1093,10 @@ class EdgeLabelLoader(object):
 
         src_nodes, dst_nodes, labels, label_map = \
             self._load_labels(cols, multilabel, separator, rows)
-        assert len(src_nodes) == labels.shape[0], \
-            'Test nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
-                                                                      labels.shape[0])
+        if len(cols) == 3:
+            assert len(src_nodes) == labels.shape[0], \
+                'Test nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
+                                                                        labels.shape[0])
         self._set_label_map(label_map)
         self._labels.append((edge_type,
                              src_nodes,
@@ -1158,9 +1201,10 @@ class EdgeLabelLoader(object):
 
         src_nodes, dst_nodes, labels, label_map = \
             self._load_labels(cols, multilabel, separator, rows)
-        assert len(src_nodes) == labels.shape[0], \
-            'nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
-                                                                 labels.shape[0])
+        if len(cols) == 3:
+            assert len(src_nodes) == labels.shape[0], \
+                'nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
+                                                                    labels.shape[0])
         self._set_label_map(label_map)
         self._labels.append((edge_type,
                              src_nodes,
@@ -1169,7 +1213,13 @@ class EdgeLabelLoader(object):
                              (split_rate[0], split_rate[1], split_rate[2])))
 
     @property
-    def node_label():
+    def node_label(self):
         """ This is edge label loader
         """
         return False
+
+    @property
+    def label_map(self):
+        """ Get the label map
+        """
+        return self._label_map

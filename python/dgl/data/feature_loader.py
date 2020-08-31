@@ -936,7 +936,7 @@ class NodeFeatureLoader(object):
         self._raw_features.append((node_type, nodes, feat))
 
     @property
-    def node_feat():
+    def node_feat(self):
         """ This is node feature loader
         """
         return True
@@ -1194,7 +1194,7 @@ class EdgeFeatureLoader(object):
         self._raw_features.append((edge_type, src_nodes, dst_nodes, feat))
 
     @property
-    def node_feat():
+    def node_feat(self):
         """ This is edge feature loader
         """
         return False

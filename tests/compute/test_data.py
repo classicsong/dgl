@@ -1322,6 +1322,274 @@ def test_edge_feature_process():
         assert np.allclose(np.array([[1.1],[1.2],[-1.2],[0.9]]),
                            feats)
 
+def create_multiple_label(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write(
+        "node{}label1{}label2{}label3{}label4{}label5{}node_d{}node_d2{}node_d3\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.write("node1{}A{}A{}C{}A,B{}A,C{}node3{}node1{}node4\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.write("node2{}B{}B{}B{}A{}B{}node4{}node2{}node5\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.write("node3{}C{}C{}A{}C,B{}A{}node5{}node1{}node6\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.write("node4{}A{}A{}A{}A,C{}A,B{}node6{}node2{}node7\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.close()
+
+def test_node_label_process():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_multiple_label(Path(tmpdirname), 'node_label.csv')
+
+        label_loader = data.NodeLabelLoader(os.path.join(tmpdirname,
+                                                         'node_label.csv'))
+        label_loader.addTrainSet([0,1])
+        node_dicts = {}
+        result = label_loader.process(node_dicts)
+        assert len(result) == 1
+        train_nids, train_labels, valid_nids, valid_labels, test_nids, test_labels = result[None]
+        assert np.array_equal(np.array([0,1,2,3]), train_nids)
+        assert valid_nids is None
+        assert test_nids is None
+        assert np.array_equal(np.array([[1,0,0],[0,1,0],[0,0,1],[1,0,0]]), train_labels)
+        assert valid_labels is None
+        assert test_labels is None
+        label_loader.addValidSet([0,2])
+        label_loader.addTestSet([0,3])
+        node_dicts = {}
+        result = label_loader.process(node_dicts)
+        train_nids, train_labels, valid_nids, valid_labels, test_nids, test_labels = result[None]
+        assert np.array_equal(np.array([0,1,2,3]), train_nids)
+        assert np.array_equal(np.array([0,1,2,3]), valid_nids)
+        assert np.array_equal(np.array([0,1,2,3]), test_nids)
+        assert np.array_equal(np.array([[1,0,0],[0,1,0],[0,0,1],[1,0,0]]), train_labels)
+        assert np.array_equal(np.array([[1,0,0],[0,1,0],[0,0,1],[1,0,0]]), valid_labels)
+        assert np.array_equal(np.array([[0,0,1],[0,1,0],[1,0,0],[1,0,0]]), test_labels)
+
+        # test with node type
+        label_loader = data.NodeLabelLoader(os.path.join(tmpdirname,
+                                                         'node_label.csv'))
+        label_loader.addTrainSet([0,1], node_type='n1')
+        node_dicts = {'n1':{'node1':3,
+                            'node2':2,
+                            'node3':1,
+                            'node4':0}}
+        label_loader.addValidSet([0,2], rows=[1,2,3], node_type='n1')
+        label_loader.addTestSet([0,3], rows=[0,1,2], node_type='n1')
+        result = label_loader.process(node_dicts)
+        assert len(result) == 1
+        assert 'n1' in result
+        train_nids, train_labels, valid_nids, valid_labels, test_nids, test_labels = result['n1']
+        assert np.array_equal(np.array([3,2,1,0]), train_nids)
+        assert np.array_equal(np.array([2,1,0]), valid_nids)
+        assert np.array_equal(np.array([3,2,1]), test_nids)
+        assert np.array_equal(np.array([[1,0,0],[0,1,0],[0,0,1],[1,0,0]]), train_labels)
+        assert np.array_equal(np.array([[0,1,0],[0,0,1],[1,0,0]]), valid_labels)
+        assert np.array_equal(np.array([[0,0,1],[0,1,0],[1,0,0]]), test_labels)
+
+        # test multilabel
+        # test with node type
+        label_loader = data.NodeLabelLoader(os.path.join(tmpdirname,
+                                                         'node_label.csv'))
+        label_loader.addTrainSet(['node','label4'],
+                                 multilabel=True,
+                                 separator=',',
+                                 node_type='n1')
+        label_loader.addSet(['node', 'label5'],
+                            split_rate=[0.,0.5,0.5],
+                            multilabel=True,
+                            separator=',',
+                            node_type='n1')
+        node_dicts = {'n1':{'node1':3,
+                            'node2':2,
+                            'node3':1,
+                            'node4':0}}
+        np.random.seed(0)
+        result = label_loader.process(node_dicts)
+        assert len(result) == 1
+        assert 'n1' in result
+        train_nids, train_labels, valid_nids, valid_labels, test_nids, test_labels = result['n1']
+        label_map = label_loader.label_map
+        rev_map = {val:key for key,val in label_map.items()}
+        vl_truth = np.zeros((2,3),dtype='int32')
+        vl_truth[0][rev_map['A']] = 1
+        vl_truth[1][rev_map['A']] = 1
+        vl_truth[1][rev_map['B']] = 1
+        tl_truth = np.zeros((2,3),dtype='int32')
+        tl_truth[0][rev_map['B']] = 1
+        tl_truth[1][rev_map['A']] = 1
+        tl_truth[1][rev_map['C']] = 1
+        assert np.array_equal(np.array([3,2,1,0]), train_nids)
+        assert np.array_equal(np.array([1,0]), valid_nids)
+        assert np.array_equal(np.array([2,3]), test_nids)
+        assert np.array_equal(np.array([[1,1,0],[1,0,0],[0,1,1],[1,0,1]]), train_labels)
+        assert np.array_equal(vl_truth, valid_labels)
+        assert np.array_equal(tl_truth, test_labels)
+
+def test_edge_label_process():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_multiple_label(Path(tmpdirname), 'edge_label.csv')
+
+        label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname,
+                                                         'edge_label.csv'))
+        # only existence of the edge
+        label_loader.addTrainSet([0,6])
+        node_dicts = {}
+        result = label_loader.process(node_dicts)
+        assert len(result) == 1
+        train_snids, train_dnids, train_labels, \
+            valid_snids, valid_dnids, valid_labels, \
+            test_snids, test_dnids, test_labels = result[None]
+        assert np.array_equal(np.array([0,1,2,3]), train_snids)
+        assert np.array_equal(np.array([2,3,4,5]), train_dnids)
+        assert valid_snids is None
+        assert valid_dnids is None
+        assert test_snids is None
+        assert test_dnids is None
+        assert train_labels is None
+        assert valid_labels is None
+        assert test_labels is None
+        label_loader.addValidSet([0,7])
+        label_loader.addTestSet([6,8])
+        node_dicts = {}
+        result = label_loader.process(node_dicts)
+        assert len(result) == 1
+        train_snids, train_dnids, train_labels, \
+            valid_snids, valid_dnids, valid_labels, \
+            test_snids, test_dnids, test_labels = result[None]
+        assert np.array_equal(np.array([0,1,2,3]), train_snids)
+        assert np.array_equal(np.array([2,3,4,5]), train_dnids)
+        assert np.array_equal(np.array([0,1,2,3]), valid_snids)
+        assert np.array_equal(np.array([0,1,0,1]), valid_dnids)
+        assert np.array_equal(np.array([2,3,4,5]), test_snids)
+        assert np.array_equal(np.array([3,4,5,6]), test_dnids)
+
+        # with labels
+        label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname,
+                                                         'edge_label.csv'))
+        label_loader.addTrainSet([0,6,1], edge_type=('n1', 'like', 'n1'))
+        node_dicts = {'n1':{'node1':3,
+                            'node2':2,
+                            'node3':1,
+                            'node4':0}}
+        label_loader.addValidSet(['node', 'node_d2', 'label2'], rows=[1,2,3], edge_type=('n1', 'like', 'n1'))
+        label_loader.addTestSet(['node_d', 'node_d3', 'label3'], rows=[0,1,2], edge_type=('n1', 'like', 'n1'))
+        result = label_loader.process(node_dicts)
+        assert len(result) == 1
+        assert ('n1', 'like', 'n1') in result
+        train_snids, train_dnids, train_labels, \
+            valid_snids, valid_dnids, valid_labels, \
+            test_snids, test_dnids, test_labels = result[('n1', 'like', 'n1')]
+        assert np.array_equal(np.array([3,2,1,0]), train_snids)
+        assert np.array_equal(np.array([1,0,4,5]), train_dnids)
+        assert np.array_equal(np.array([2,1,0]), valid_snids)
+        assert np.array_equal(np.array([2,3,2]), valid_dnids)
+        assert np.array_equal(np.array([1,0,4]), test_snids)
+        assert np.array_equal(np.array([0,4,5]), test_dnids)
+        assert np.array_equal(np.array([[1,0,0],[0,1,0],[0,0,1],[1,0,0]]), train_labels)
+        assert np.array_equal(np.array([[0,1,0],[0,0,1],[1,0,0]]), valid_labels)
+        assert np.array_equal(np.array([[0,0,1],[0,1,0],[1,0,0]]), test_labels)
+
+        # with multiple labels
+        label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname,
+                                                         'edge_label.csv'))
+        label_loader.addTrainSet(['node','node_d','label4'],
+                                 multilabel=True,
+                                 separator=',',
+                                 edge_type=('n1', 'like', 'n2'))
+        node_dicts = {'n1':{'node1':3,
+                            'node2':2,
+                            'node3':1,
+                            'node4':0}}
+        label_loader.addSet(['node_d2', 'node_d3', 'label5'],
+                            split_rate=[0.,0.5,0.5],
+                            multilabel=True,
+                            separator=',',
+                            edge_type=('n1', 'like', 'n2'))
+        np.random.seed(0)
+        result = label_loader.process(node_dicts)
+        assert len(result) == 1
+        assert ('n1', 'like', 'n2') in result
+        train_snids, train_dnids, train_labels, \
+            valid_snids, valid_dnids, valid_labels, \
+            test_snids, test_dnids, test_labels = result[('n1', 'like', 'n2')]
+        label_map = label_loader.label_map
+        rev_map = {val:key for key,val in label_map.items()}
+        vl_truth = np.zeros((2,3),dtype='int32')
+        vl_truth[0][rev_map['A']] = 1
+        vl_truth[1][rev_map['A']] = 1
+        vl_truth[1][rev_map['B']] = 1
+        tl_truth = np.zeros((2,3),dtype='int32')
+        tl_truth[0][rev_map['B']] = 1
+        tl_truth[1][rev_map['A']] = 1
+        tl_truth[1][rev_map['C']] = 1
+        assert np.array_equal(np.array([3,2,1,0]), train_snids)
+        assert np.array_equal(np.array([0,1,2,3]), train_dnids)
+        assert np.array_equal(np.array([3,2]), valid_snids)
+        assert np.array_equal(np.array([3,4]), valid_dnids)
+        assert np.array_equal(np.array([2,3]), test_snids)
+        assert np.array_equal(np.array([2,1]), test_dnids)
+        assert np.array_equal(np.array([[1,1,0],[1,0,0],[0,1,1],[1,0,1]]), train_labels)
+        assert np.array_equal(vl_truth, valid_labels)
+        assert np.array_equal(tl_truth, test_labels)
+
+def test_edge_process():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_graph_edges(Path(tmpdirname), 'graphs.csv')
+
+        edge_loader = data.EdgeLoader(os.path.join(tmpdirname,
+                                                   'graphs.csv'))
+
+        edge_loader.addEdges([0,1])
+        edge_loader.addEdges(['node_0','node_1'])
+        edge_loader.addEdges(['node_0','node_1'],
+                             rows=np.array([1,2,3,4]),
+                             edge_type=('src', 'edge', 'src'))
+        node_dicts = {}
+        result = edge_loader.process(node_dicts)
+        assert len(result) == 2
+        snids, dnids = result[None]
+        assert np.array_equal(np.array([0,1,2,3,3,0,1,2,3,3]), snids)
+        assert np.array_equal(np.array([3,2,1,0,3,3,2,1,0,3]), dnids)
+        snids, dnids = result[('src', 'edge', 'src')]
+        assert np.array_equal(np.array([0,1,2,2]), snids)
+        assert np.array_equal(np.array([1,0,3,2]), dnids)
+
+        # with categorical relation
+        edge_loader = data.EdgeLoader(os.path.join(tmpdirname,
+                                                   'graphs.csv'))
+        edge_loader.addCategoryRelationEdge([0,1,2],
+                                            src_type='src_t',
+                                            dst_type='dst_t')
+        edge_loader.addCategoryRelationEdge(['node_0','node_1','rel_2'],
+                                            src_type='src_t',
+                                            dst_type='dst_t')
+        edge_loader.addCategoryRelationEdge(['node_0','node_1','rel_1'],
+                                            rows=np.array([1,2,3,4]),
+                                            src_type='src',
+                                            dst_type='dst')
+        node_dicts = {'src_t':{'node1':3,
+                                'node2':2,
+                                'node3':1,
+                                'node4':0}}
+        result = edge_loader.process(node_dicts)
+        assert len(result) == 4
+        snids, dnids = result[('src_t','A','dst_t')]
+        assert np.array_equal(np.array([3,2,1,0,0,0]), snids)
+        assert np.array_equal(np.array([0,1,2,3,0,0]), dnids)
+        snids, dnids = result[('src_t','B','dst_t')]
+        assert np.array_equal(np.array([0]), snids)
+        assert np.array_equal(np.array([3]), dnids)
+        snids, dnids = result[('src_t','C','dst_t')]
+        assert np.array_equal(np.array([3,2,1]), snids)
+        assert np.array_equal(np.array([0,1,2]), dnids)
+        snids, dnids = result[('src','A','dst')]
+        assert np.array_equal(np.array([0,1,2,2]), snids)
+        assert np.array_equal(np.array([0,1,2,3]), dnids)
+
 
 if __name__ == '__main__':
     #test_minigc()
@@ -1353,3 +1621,8 @@ if __name__ == '__main__':
     # test feature process
     test_node_feature_process()
     test_edge_feature_process()
+    # test label process
+    test_node_label_process()
+    test_edge_label_process()
+    # test edge process
+    test_edge_process()

@@ -5,7 +5,7 @@ import csv
 import numpy as np
 
 from ..base import DGLError, dgl_warning
-from .utils import field2idx
+from .utils import field2idx, get_id
 
 class EdgeLoader(object):
     r"""EdgeLoader allows users to define graph edges.
@@ -131,12 +131,12 @@ class EdgeLoader(object):
             # chech if same node_type already exists
             # if so concatenate the edges.
             if edge_type in results:
-                last_snids, last_dnids = result[edge_type]
-                result[edge_type] = (np.concatenate((last_snids, snids)),
+                last_snids, last_dnids = results[edge_type]
+                results[edge_type] = (np.concatenate((last_snids, snids)),
                                      np.concatenate((last_dnids, dnids)))
             else:
-                result[edge_type] = (snids, dnids)
-        return result
+                results[edge_type] = (snids, dnids)
+        return results
 
     def addEdges(self, cols, rows=None, edge_type=None):
         r""" Add edges into the graph
