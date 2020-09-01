@@ -3,8 +3,10 @@ import os
 import csv
 
 import numpy as np
+# TODO(xiangsx): Framework agnostic later
+import torch as th
 
-from ..base import DGLError, dgl_warning
+from .utils import save_graphs, load_graphss, save_info, load_info
 from .utils import field2idx, get_id
 
 class EdgeLoader(object):
@@ -94,6 +96,14 @@ class EdgeLoader(object):
         """ preparing edges for creating dgl graph.
 
         Src and dst nodes are converted into consecutive integer ID spaces
+
+        Params:
+        node_dicts: dict of dict
+            {node_type: {node_str : node_id}}
+
+        Return:
+            dict
+            {edge_type: (snids, dnids)}
         """
         results = {}
         for edges in self._edges:
@@ -125,8 +135,8 @@ class EdgeLoader(object):
             for node in dst_nodes:
                 nid = get_id(dnid_map, node)
                 dnids.append(nid)
-            snids = np.asarray(snids)
-            dnids = np.asarray(dnids)
+            snids = np.asarray(snids, dtype='long')
+            dnids = np.asarray(dnids, dtype='long')
 
             # chech if same node_type already exists
             # if so concatenate the edges.
@@ -185,14 +195,14 @@ class EdgeLoader(object):
 
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2:
-            raise DGLError("addEdges only accepts two columns "\
+            raise RuntimeError("addEdges only accepts two columns "\
                            "for source node and destination node.")
 
         if edge_type != None and len(edge_type) != 3:
-            raise DGLError("edge_type should be None or a tuple of " \
+            raise RuntimeError("edge_type should be None or a tuple of " \
                 "(src_type, relation_type, dst_type)")
 
         src_nodes = []
@@ -288,10 +298,10 @@ class EdgeLoader(object):
 
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 3:
-            raise DGLError("addCategoryRelationEdge only accepts three columns " \
+            raise RuntimeError("addCategoryRelationEdge only accepts three columns " \
                            "the first column for source node, " \
                            "the second for destination node, " \
                            "and third for edge category")
@@ -380,7 +390,7 @@ class GraphLoader(object):
 
         if edge_loader is not None:
             if not isinstance(edge_loader, list):
-                raise DGLError("edge loaders should be a list of EdgeLoader")
+                raise RuntimeError("edge loaders should be a list of EdgeLoader")
 
             self._edge_loader = edge_loader
         else:
@@ -388,7 +398,7 @@ class GraphLoader(object):
 
         if feature_loader is not None:
             if not isinstance(feature_loader, list):
-                raise DGLError("feature loaders should be " \
+                raise RuntimeError("feature loaders should be " \
                     "a list of NodeFeatureLoader and EdgeFeatureLoader")
 
             self._feature_loader = feature_loader
@@ -397,7 +407,7 @@ class GraphLoader(object):
 
         if label_loader is not None:
             if not isinstance(label_loader, list):
-                raise DGLError("label loaders should be " \
+                raise RuntimeError("label loaders should be " \
                     "a list of NodeLabelLoader and EdgeLabelLoader")
 
             self._label_loader = label_loader
@@ -407,48 +417,546 @@ class GraphLoader(object):
         self._graph = None
         self._verbose = verbose
         self._node_dict = {}
+        self._label_map = None
 
     def appendEdge(self, edge_loader):
+        """ Add edges into graph
+
+        Parameters
+        ----------
+        edge_loader: EdgeLoader
+            edge loaders to load graph edges
+            default: None
+
+        Example:
+
+        ** create edge loader to load edges **
+
+        >>> edge_loader = dgl.data.EdgeLoader(input='edge.csv',
+                                            separator="|")
+        >>> edge_loader.addEdges([0, 1])
+
+        ** Append edges into graph loader **
+
+        >>> graphloader = dgl.data.GraphLoader(name='example')
+        >>> graphloader.appendEdge(edge_loader)
+
+        """
         if not isinstance(edge_loader, EdgeLoader):
-            raise DGLError("edge loader should be a EdgeLoader")
+            raise RuntimeError("edge loader should be a EdgeLoader")
         self._edge_loader.append(edge_loader)
 
     def appendFeature(self, feature_loader):
+        """ Add features and edges into graph
+
+        Parameters
+        ----------
+        feature_loader: NodeFeatureLoader or EdgeFeatureLoader
+            feature loaders to load graph edges
+            default: None
+
+        Example:
+
+        ** Creat a FeatureLoader to load user features from u.csv.**
+
+        >>> user_loader = dgl.data.FeatureLoader(input='u.csv',
+                                                separator="|")
+        >>> user_loader.addCategoryFeature(cols=["id", "gender"], node_type='user')
+
+        ** Append features into graph loader **
+
+        >>> graphloader = dgl.data.GraphLoader(name='example')
+        >>> graphloader.appendFeature(user_loader)
+
+        """
         if not isinstance(feature_loader, NodeFeatureLoader) and \
             not isinstance(feature_loader, EdgeFeatureLoader):
-            raise DGLError("feature loader should be a NodeFeatureLoader or EdgeFeatureLoader.")
+            raise RuntimeError("feature loader should be a NodeFeatureLoader or EdgeFeatureLoader.")
         self._feature_loader.append(feature_loader)
 
     def appendLabel(self, label_loader):
+        """ Add labels and edges into graph
+
+        Parameters
+        ----------
+        label_loader: NodeLabelLoader or EdgeLabelLoader
+            label loaders to load graph edges
+            default: None
+
+        Note
+        ----
+        To keep the overall design of the GraphLoader simple,
+        it accepts only one LabelLoader.
+
+        Examples:
+
+        ** create node label loader to load labels **
+
+        >>> label_loader = dgl.data.NodeLabelLoader(input='label.csv',
+                                                    separator="|")
+        >>> label_loader.addTrainSet([0, 1], rows=np.arange(start=0,
+                                                            stop=100))
+
+        ** Append labels into graph loader **
+
+        >>> graphloader = dgl.data.GraphLoader(name='example')
+        >>> graphloader.appendLabel(label_loader)
+
+        """
         if not isinstance(label_loader, NodeLabelLoader) and \
             not isinstance(label_loader, EdgeLabelLoader):
-            raise DGLError("label loader should be a NodeLabelLoader or EdgeLabelLoader.")
+            raise RuntimeError("label loader should be a NodeLabelLoader or EdgeLabelLoader.")
+        assert len(self._label_loader) == 0, \
+            'DGL GraphLoader only support one label loader now.' \
+            'It requires no extra efforts to sync the label mappings'
         self._label_loader.append(label_loader)
 
     def addReverseEdge(self):
+        """ Add Reverse edges with new relation type.
+
+        addReverseEdge works for heterogenous graphs. It adds
+        a new relation type for each existing relation. For
+        example, with relation ('head', 'rel', 'tail'), it will
+        create a new relation type ('tail', 'rev-rel', 'head')
+        and adds edges belong to ('head', 'rel', 'tail') into
+        new relation type with reversed head and tail entity order.
+
+        Example:
+
+        ** create edge loader to load edges **
+
+        >>> edge_loader = dgl.data.EdgeLoader(input='edge.csv',
+                                            separator="|")
+        >>> edge_loader.addEdges([0, 1],
+                                src_type='user',
+                                edge_type='likes',
+                                dst_type='movie')
+
+        ** Append edges into graph loader **
+
+        >>> graphloader = dgl.data.GraphLoader(name='example')
+        >>> graphloader.appendEdge(edge_loader)
+
+        ** add reversed edges into graph **
+
+        >>> graphloader.addReverseEdge()
+
+        """
         pass
 
     def process(self):
-        for feat_loader in self._feature_loader:
-            if feat_loader.node_feat:
-                node_feat_result = feat_loader.process(self._node_dict)
-            else:
-                edge_feat_result = feat_loader.process(self._node_dict)
+        """ Parsing EdgeLoaders, FeatureLoaders and LabelLoders to build the DGLGraph
+        """
+        graphs = {} # edge_type: (s, d, feat)
+        nodes = {}
+        edge_feat_results = {}
+        node_feat_results = {}
+        edge_label_results = {}
+        node_label_results = {}
 
+        if self._verbose:
+            print('Start processing graph structure ...')
+        # we first handle edges
         for edge_loader in self._edge_loader:
+            # {edge_type: (snids, dnids)}
             edge_result = edge_loader.process(self._node_dict)
+            for edge_type, vals in edge_result:
+                snids, dnids = vals
+                if edge_type in graphs:
+                    graphs[edge_type] = (np.concatenate((graphs[edge_type][0], snids)),
+                                         np.concatenate((graphs[edge_type][1], dnids)),
+                                         None)
+                else:
+                    graphs[edge_type] = (snids, dnids, None)
 
-        for label_loader in self._label_loader:
-            if label_loader.node_label:
-                node, label = label_loader.process(self._node_dict)
+        # we assume edges have features is not loaded by edgeLoader.
+        for feat_loader in self._feature_loader:
+            if feat_loader.node_feat is False:
+                # {edge_type: (snids, dnids, feats)}
+                edge_feat_result = feat_loader.process(self._node_dict)
+                edge_feat_results.append(edge_feat_result)
+
+                for edge_type, vals in edge_feat_result.items():
+                    if edge_type in graphs:
+                        snids, dnids, feats = vals
+                        new_feats = {}
+                        for feat_name, feat in feats:
+                            assert feat_name not in graphs[edge_type][2], \
+                                'Can not concatenate edges with features with other edges without features'
+                            assert graphs[edge_type][2][feat_name].shape[1:] == feat.shape[1:], \
+                                'Can not concatenate edges with different feature shape'
+
+                            new_feats[feat_name] = np.concatenate((graphs[edge_type][2][feat_name], feat))
+
+                        graphs[edge_type] = (np.concatenate((graphs[edge_type][0], snids)),
+                                             np.concatenate((graphs[edge_type][1], dnids)),
+                                             new_feats)
+                    else:
+                        graphs[edge_type] = vals
             else:
-                s_node, d_node, label = label_loader.process(self._node_dict)
+                # {node_type: (node_ids, node_feats)}
+                node_feat_result = feat_loader.process(self._node_dict)
+                node_feat_results.append(node_feat_result)
 
-    def save(self, path=None):
-        pass
+                for node_type, vals in node_feat_result.items():
+                    nids, _ = vals
+                    max_nid = int(np.max(nids))
+                    if node_type in nodes:
+                        nodes[node_type] = max(nodes[node_type], max_nid)
+                    else:
+                        nodes[node_type] = max_nid
 
-    def load(self, path=None):
-        pass
+        assert len(self._label_loader) == 1, \
+            'DGL GraphLoader should only have one label loader that ' \
+            'it requires no extra efforts to sync the label mappings'
+
+        # TODO(xiangsx): in future we may support multiple LabelLoaders.
+        for label_loader in self._label_loader:
+            self._label_map = label_loader.label_map
+            if label_loader.node_label is False:
+                # {edge_type: ((train_snids, train_dnids, train_labels,
+                #               valid_snids, valid_dnids, valid_labels,
+                #               test_snids, test_dnids, test_labels)}
+                edge_label_result = label_loader.process(self._node_dict)
+                edge_label_results.append(edge_label_result)
+
+                for edge_type, vals in edge_label_result.items():
+                    train_snids, train_dnids, train_labels, \
+                        valid_snids, valid_dnids, valid_labels, \
+                        test_snids, test_dnids, test_labels = vals
+
+                    if edge_type in graphs:
+                        # If same edge_type also has features,
+                        # we expect edges have labels also have features.
+                        # Thus we avoid add edges twice.
+                        # Otherwise, if certain edge_type has no featus, add it directly
+                        if graphs[edge_type][2] is None:
+                            snids = graphs[edge_type][0]
+                            dnids = graphs[edge_type][1]
+                            if train_snids is not None:
+                                snids = np.concatenate((snids, train_snids))
+                                dnids = np.concatenate((dnids, train_dnids))
+                            if valid_snids is not None:
+                                snids = np.concatenate((snids, valid_snids))
+                                dnids = np.concatenate((dnids, valid_dnids))
+                            if test_snids is not None:
+                                snids = np.concatenate((snids, test_snids))
+                                dnids = np.concatenate((dnids, test_dnids))
+                            graphs[edge_type] = (snids, dnids, None)
+                    else:
+                        snids = np.empty((0,), dtype='long')
+                        dnids = np.empty((0,), dtype='long')
+                        if train_snids is not None:
+                            snids = np.concatenate((snids, train_snids))
+                            dnids = np.concatenate((dnids, train_dnids))
+                        if valid_snids is not None:
+                            snids = np.concatenate((snids, valid_snids))
+                            dnids = np.concatenate((dnids, valid_dnids))
+                        if test_snids is not None:
+                            snids = np.concatenate((snids, test_snids))
+                            dnids = np.concatenate((dnids, test_dnids))
+                        graphs[edge_type] = (snids, dnids, None)
+            else:
+                # {node_type: (train_nids, train_labels,
+                #              valid_nids, valid_labels,
+                #              test_nids, test_labels)}
+                node_label_result = label_loader.process(self._node_dict)
+                node_label_results.append(node_label_result)
+                for node_type, vals in node_label_result.items():
+                    train_nids, _, valid_nids, _, test_nids, _ = vals
+                    max_nid = 0
+                    if train_nids is not None:
+                        max_nid = max(int(np.max(train_nids), max_nid))
+                    if valid_nids is not None:
+                        max_nid = max(int(np.max(valid_nids), max_nid))
+                    if test_nids is not None:
+                        max_nid = max(int(np.max(test_nids), max_nid))
+
+                    if node_type in nodes:
+                        nodes[node_type] = max(nodes[node_type], max_nid)
+                    else:
+                        nodes[node_type] = max_nid
+        if self._verbose:
+            print('Done processing graph structure.')
+            print('Start building dgl graph.')
+
+        # build graph
+        if len(graphs) > 1:
+            assert None not in graphs, \
+                'With heterogeneous graph, all edges should have edge type'
+            assert None not in nodes, \
+                'With heterogeneous graph, all nodes should have node type'
+            graph_edges = {key: (val[0], val[1]) for key, val in graphs.items()}
+            g = dgl.heterograph(graph_edges, num_nodes=nodes)
+            for edge_type, vals in graphs.items():
+                # has edge features
+                if vals[2] is not None:
+                    for key, feat in vals[2].items():
+                        g.edges[edge_type].data[key] = feat
+        else:
+            g = dgl.graph((graphs[None][0], graphs[None][1]), num_nodes=nodes[None])
+            # has edge features
+            if graphs[None][2] is not None:
+                for key, feat in graphs[None][2].items():
+                    g.edata[key] = feat
+
+        # no need to handle edge features
+        # handle node features
+        for node_feats in node_feat_results:
+            # {node_type: (node_ids, node_feats)}
+            for node_type, vals in node_feats.items():
+                if node_type is None:
+                    for key, feat in vals.items():
+                        g.ndata[key] = feat
+                else:
+                    for key, feat in vals.items():
+                        g.nodes[node_type].data[key] = feat
+
+        if self._verbose:
+            print('Done building dgl graph.')
+            print('Start processing graph labels...')
+        train_edge_labels = {}
+        valid_edge_labels = {}
+        test_edge_labels = {}
+        # concatenate all edge labels
+        for edge_label_result in edge_label_results:
+            for edge_type, vals in edge_label_result.items():
+                train_snids, train_dnids, train_labels, \
+                    valid_snids, valid_dnids, valid_labels, \
+                    test_snids, test_dnids, test_labels = vals
+
+                # train edge labels
+                if edge_type in train_edge_labels:
+                    if train_snids is not None:
+                        train_edge_labels[edge_type] = (
+                            np.concatenate((train_edge_labels[edge_type][0], train_snids)),
+                            np.concatenate((train_edge_labels[edge_type][1], train_dnids)),
+                            None if train_labels is None else \
+                                np.concatenate((train_edge_labels[edge_type][2], train_labels)))
+                    else:
+                        train_edge_labels[edge_type] = (train_snids, train_dnids, train_labels)
+
+                # valid edge labels
+                if edge_type in valid_edge_labels:
+                    if valid_snids is not None:
+                        valid_edge_labels[edge_type] = (
+                            np.concatenate((valid_edge_labels[edge_type][0], valid_snids)),
+                            np.concatenate((valid_edge_labels[edge_type][1], valid_dnids)),
+                            None if valid_labels is None else \
+                                np.concatenate((valid_edge_labels[edge_type][2], valid_labels)))
+                    else:
+                        valid_edge_labels[edge_type] = (valid_snids, valid_dnids, valid_labels)
+
+                # test edge labels
+                if edge_type in test_edge_labels:
+                    if test_snids is not None:
+                        test_edge_labels[edge_type] = (
+                            np.concatenate((test_edge_labels[edge_type][0], test_snids)),
+                            np.concatenate((test_edge_labels[edge_type][1], test_dnids)),
+                            None if test_labels is None else \
+                                np.concatenate((test_edge_labels[edge_type][2], test_labels)))
+                    else:
+                        test_edge_labels[edge_type] = (test_snids, test_dnids, test_labels)
+
+        # create labels and train/valid/test mask
+        assert len(train_edge_labels) >= len(valid_edge_labels),
+            'The training set should cover all kinds of edge types ' \
+            'where the validation set is avaliable.'
+        assert len(train_edge_labels) == len(test_edge_labels),
+            'The training set should cover the same edge types as the test set.'
+
+        for edge_type, train_val in train_edge_labels:
+            train_snids, train_dnids, train_labels = train_val
+            valid_snids, valid_dnids, valid_labels = \
+                valid_edge_labels[edge_type] if edge_type in valid_edge_labels \
+                    else None, None, None
+            assert edge_type in test_edge_labels
+            test_snids, test_dnids, test_labels = test_edge_labels[edge_type]
+
+            u, v, eids = g.edge_ids(train_snids,
+                                    train_dnids,
+                                    return_uv=True,
+                                    etype=edge_type)
+            labels = None
+            # handle train label
+            if train_labels is not None:
+                train_labels = th.tensor(train_labels)
+                labels = th.full((g.num_edges(edge_type), train_labels.shape[1]),
+                                    value=-1,
+                                    dtype=train_labels.dtype)
+                labels[eids] = train_labels
+            # handle train mask
+            train_mask = th.full((g.num_edges(edge_type),), False)
+            train_mask[eids] = True
+
+            valid_mask = None
+            if valid_snids is not None:
+                u, v, eids = g.edge_ids(valid_snids,
+                                        valid_dnids,
+                                        return_uv=True,
+                                        etype=edge_type)
+                # handle valid label
+                if valid_labels is not None:
+                    assert labels is not None, \
+                        'We must have train_labels first then valid_labels'
+                    labels[eids] = valid_labels
+                # handle valid mask
+                valid_mask = th.full((g.num_edges(edge_type),), False)
+                valid_mask[eids] = True
+
+            u, v, eids = g.edge_ids(test_snids,
+                                    test_dnids,
+                                    return_uv=True,
+                                    etype=edge_type)
+            # handle test label
+            if test_labels is not None:
+                assert labels is not None, \
+                    'We must have train_labels first then test_lavbels'
+                labels[eids] = test_labels
+            # handle test mask
+            test_mask = th.full((g.num_edges(edge_type),), False)
+            test_mask[eids] = True
+
+            # add label and train/valid/test masks into g
+            if edge_type is None:
+                assert len(train_edge_labels) == 1,
+                    'Homogeneous graph only supports one type of labels'
+                g.edata['labels'] = labels
+                g.edata['train_mask'] = train_mask
+                g.edata['valid_mask'] = valid_mask
+                g.edata['test_mask'] = test_mask
+            else: # we have edge type
+                assert 'train_mask' not in g.edges[edge_type].data
+                g.edges[edge_type].data['labels'] = labels
+                g.edges[edge_type].data['train_mask'] = train_mask
+                g.edges[edge_type].data['valid_mask'] = valid_mask
+                g,edges[edge_type].data['test_mask'] = test_mask
+
+        # node labels
+        train_node_labels = {}
+        valid_node_labels = {}
+        test_node_labels = {}
+        for node_labels in node_label_results:
+            for node_type, vals in node_label_result.items():
+                train_nids, train_labels, \
+                    valid_nids, valid_labels, \
+                    test_nids, test_labels = vals
+
+                # train node labels
+                if node_type in train_node_labels:
+                    if train_nids is not None:
+                        train_node_labels[node_type] = (
+                            np.concatenate((train_node_labels[node_type][0], train_nids)),
+                            None if train_labels is None else \
+                                np.concatenate((train_node_labels[node_type][1], train_labels)))
+                    else:
+                        train_node_labels[node_type] = (train_nids, train_labels)
+
+                # valid node labels
+                if node_type in valid_node_labels:
+                    if valid_nids is not None:
+                        valid_node_labels[node_type] = (
+                            np.concatenate((valid_node_labels[node_type][0], valid_nids)),
+                            None if valid_labels is None else \
+                                np.concatenate((valid_node_labels[node_type][0], valid_labels)))
+                    else:
+                        valid_node_labels[node_type] = (valid_nids, valid_labels)
+
+                # test node labels
+                if node_type in test_node_labels:
+                    if test_nids is not None:
+                        test_node_labels[node_type] = (
+                            np.concatenate((test_node_labels[node_type][0], test_nids)),
+                            None if test_labels is none else \
+                                np.concatenate((test_node_labels[node_type][0], test_labels)))
+                    else:
+                        test_node_labels[node_type] = (test_nids, test_labels)
+
+        # create labels and train/valid/test mask
+        assert len(train_node_labels) >= len(valid_node_labels),
+            'The training set should cover all kinds of node types ' \
+            'where the validation set is avaliable.'
+        assert len(train_node_labels) == len(test_node_labels),
+            'The training set should cover the same node types as the test set.'
+
+        for node_type, train_val in train_node_labels:
+            train_nids, train_labels = train_val
+            valid_nids, valid_labels = valid_node_labels[node_type] \
+                if node_type in valid_node_labels else None, None
+            test_nids, test_labels = test_node_labels[node_type]
+
+            labels = None
+            # handle train label
+            if train_labels is not None:
+                train_labels = th.tensor(train_labels)
+                labels = th.full(g.num_nodes(node_type), train_labels.shape[1]),
+                                 value=-1,
+                                 dtype=train_labels.dtype)
+                labels[train_nids] = train_labels
+            # handle train mask
+            train_mask = th.full((g.num_nodes(node_type),), False)
+            train_mask[train_nids] = True
+
+            valid_mask = None
+            if valid_nids is not None:
+                # handle valid label
+                if valid_labels is not None:
+                    assert labels is not None, \
+                        'We must have train_labels first then valid_labels'
+                    labels[valid_nids] = valid_labels
+                # handle valid mask
+                valid_mask = th.full((g.num_nodes(node_type),), False)
+                valid_mask[valid_nids] = True
+
+            # handle test label
+            if test_labels is not None:
+                assert labels is not None, \
+                    'We must have train_labels first then test_labels'
+                labels[test_nids] = test_labels
+            # handle test mask
+            test_mask = th.full((g.num_nodes(node_type),), False)
+            test_mask[test_nids] = True
+
+            # add label and train/valid/test masks into g
+            if node_type is None:
+                assert len(train_node_labels) == 1,
+                    'Homogeneous graph only supports one type of labels'
+                g.ndata['labels'] = labels
+                g.ndata['train_mask'] = train_mask
+                g.ndata['valid_mask'] = valid_mask
+                g.ndata['test_mask'] = test_mask
+            else: # we have node type
+                assert 'train_mask' not in g.nodes[node_type].data
+                g.nodes[node_type].data['labels'] = labels
+                g.nodes[node_type].data['train_mask'] = train_mask
+                g.nodes[node_type].data['valid_mask'] = valid_mask
+                g.nodes[node_type].data['test_mask'] = test_mask
+
+        if self._verbose:
+            print('Done processing labels')
+
+        self._g = g
+
+    def save(self, path):
+        """save the graph and the labels"""
+        graph_path = os.path.join(path,
+                                  'graph.bin')
+        info_path = os.path.join(path,
+                                 'info.pkl')
+        save_graphs(graph_path, self._g)
+        save_info(info_path, {'node_id_map': self._node_dict,
+                              'label_map': self._label_map})
+
+    def load(self, path):
+        graph_path = os.path.join(path,
+                                  'graph.bin')
+        info_path = os.path.join(path,
+                                 'info.pkl')
+        graphs, _ = load_graphs(graph_path)
+        self._g = graphs[0]
+        info = load_info(str(info_path))
+        self._node_dict = info['node_id_map']
+        self._label_map = info['label_map']
 
     @property
     def node_id_map(self):
@@ -459,7 +967,7 @@ class GraphLoader(object):
         dict of dict:
             [node_type →  dict of [graph id(int) → raw node id(string/int)]
         """
-        pass
+        return self._node_dict
 
     @property
     def label_map(self):
@@ -470,10 +978,10 @@ class GraphLoader(object):
         dict:
             dict of [label id(int) → raw label(string/int)]
         """
-        pass
+        return self._label_map
 
     @property
     def graph(self):
         """ Return processed graph
         """
-        return self._graph
+        return self._g

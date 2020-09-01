@@ -4,7 +4,6 @@ import os
 import csv
 import numpy as np
 
-from ..base import DGLError, dgl_warning
 from .utils import parse_category_single_feat, parse_category_multi_feat
 from .utils import parse_numerical_feat
 from .utils import parse_numerical_multihot_feat
@@ -113,10 +112,18 @@ class NodeFeatureLoader(object):
 
         Nodes are converted into consecutive integer ID spaces and
         its corresponding features are concatenated together.
+
+        Params:
+        node_dicts: dict of dict
+            {node_type: {node_str : node_id}}
+
+        Return:
+            dict
+            {node_type: (node_ids, node_feats)}
         """
         results = {}
         for raw_feat in self._raw_features:
-            node_type, nodes, feats = raw_feat
+            feat_name, node_type, nodes, feats = raw_feat
             if node_type in node_dicts:
                 nid_map = node_dicts[node_type]
             else:
@@ -127,23 +134,27 @@ class NodeFeatureLoader(object):
             for node in nodes:
                 nid = get_id(nid_map, node)
                 nids.append(nid)
-            nids = np.asarray(nids)
+            nids = np.asarray(nids, dtype='long')
 
             # chech if same node_type already exists
             # if so concatenate the features.
             if node_type in results:
-                last_nids, last_feats = results[node_type]
-                assert last_nids.shape[0] == nids.shape[0], \
-                    "Input features from different columns should have the same shape." \
-                    "but got {} vs. {}".format(last_nids.shape[0], nids.shape[0])
-                results[node_type] = (last_nids,
-                                     np.concatenate((last_feats, feats), axis=1))
+                if feat_name in results[node_type]:
+                    last_nids, last_feats = results[node_type][feat_name]
+                    assert last_nids.shape[0] == nids.shape[0], \
+                        "Input features from different columns should have the same shape." \
+                        "but got {} vs. {}".format(last_nids.shape[0], nids.shape[0])
+                    results[node_type][feat_name] = (last_nids,
+                                                     np.concatenate((last_feats, feats), axis=1))
+                else:
+                    results[node_type][feat_name] = (nids, feats)
             else:
-                results[node_type] = (nids, feats)
+                results[node_type] = {}
+                results[node_type][feat_name] = (nids, feats)
 
         return results
 
-    def addCategoryFeature(self, cols, rows=None, norm=None, node_type=None):
+    def addCategoryFeature(self, cols, feat_name='nf', rows=None, norm=None, node_type=None):
         r"""Add categorical features for nodes
 
         Two or more columns of the **input** are chosen, one for
@@ -164,6 +175,10 @@ class NodeFeatureLoader(object):
             (2) [int, int, ...] column numbers for node and category.
             The first column is treated as node name and
             the second and the rest columns are treated as category data.
+
+        feat_name: str
+            Feature name.
+            Default: nf
 
         rows: numpy.array or list of int
             Which row(s) to load. None to load all.
@@ -228,10 +243,10 @@ class NodeFeatureLoader(object):
                                         norm='col')
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) < 2:
-            raise DGLError("addCategoryFeature requires at least 2 columns, " \
+            raise RuntimeError("addCategoryFeature requires at least 2 columns, " \
                 "one for nodes, others for category data")
 
         if self._verbose:
@@ -299,9 +314,9 @@ class NodeFeatureLoader(object):
         else:
             feat, _ = parse_category_multi_feat(features, norm=norm)
         assert len(nodes) == feat.shape[0]
-        self._raw_features.append((node_type, nodes, feat))
+        self._raw_features.append((feat_name, node_type, nodes, feat))
 
-    def addMultiCategoryFeature(self, cols, separator, rows=None, norm=None, node_type=None):
+    def addMultiCategoryFeature(self, cols, separator, feat_name='nf', rows=None, norm=None, node_type=None):
         r"""Add multiple categorical features for nodes
 
         Two columns of the **input** are chosen, one for
@@ -323,6 +338,10 @@ class NodeFeatureLoader(object):
             (2) [int, int] column numbers for node and category.
             The first column is treated as node name and
             the second is treated as category data.
+
+        feat_name: str
+            Feature name.
+            Default: nf
 
         separator: str
             Delimiter(separator) used to split category data.
@@ -381,10 +400,10 @@ class NodeFeatureLoader(object):
                                                 separator=',')
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2:
-            raise DGLError("addMultiCategoryFeature only accept two columns, " \
+            raise RuntimeError("addMultiCategoryFeature only accept two columns, " \
                 "one for nodes, another for category data")
 
         if self._verbose:
@@ -430,9 +449,9 @@ class NodeFeatureLoader(object):
 
         feat, _ = parse_category_multi_feat(features, norm=norm)
         assert len(nodes) == feat.shape[0]
-        self._raw_features.append((node_type, nodes, feat))
+        self._raw_features.append((feat_name, node_type, nodes, feat))
 
-    def addNumericalFeature(self, cols, rows=None, norm=None, node_type=None):
+    def addNumericalFeature(self, cols, feat_name='nf', rows=None, norm=None, node_type=None):
         r"""Add numerical features for nodes
 
         Two columns of the **input** are chosen, one for
@@ -450,6 +469,10 @@ class NodeFeatureLoader(object):
             (2) [int, int, ...] column numbers for node and numerical data.
             The first column is treated as node name and
             the second and the rest columns are treated as numerical data.
+
+        feat_name: str
+            Feature name.
+            Default: nf
 
         rows: numpy.array or list of int
             Which row(s) to load. None to load all.
@@ -496,10 +519,10 @@ class NodeFeatureLoader(object):
         >>> user_loader.addNumericalFeature(cols=["name", "weight"])
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) < 2:
-            raise DGLError("addNumericalFeature requires at least 2 columns, " \
+            raise RuntimeError("addNumericalFeature requires at least 2 columns, " \
                 "one for nodes, others for numerical data")
 
         if self._verbose:
@@ -553,9 +576,9 @@ class NodeFeatureLoader(object):
 
         feat = parse_numerical_feat(features, norm=norm)
         assert len(nodes) == feat.shape[0]
-        self._raw_features.append((node_type, nodes, feat))
+        self._raw_features.append((feat_name, node_type, nodes, feat))
 
-    def addMultiNumericalFeature(self, cols, separator, rows=None, norm=None, node_type=None):
+    def addMultiNumericalFeature(self, cols, feat_name='nf', separator, rows=None, norm=None, node_type=None):
         r"""Add numerical features for nodes
 
         Two columns of the **input** are chosen, one for
@@ -573,6 +596,10 @@ class NodeFeatureLoader(object):
             (2) [int, int] column numbers for node and category.
             The first column is treated as node name and
             the second is treated as category data.
+
+        feat_name: str
+            Feature name.
+            Default: nf
 
         separator: str
             Delimiter(separator) used to split category data.
@@ -622,10 +649,10 @@ class NodeFeatureLoader(object):
         >>> user_loader.addNumericalFeature(cols=["name", "feature"])
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2:
-            raise DGLError("addMultiNumericalFeature only accept two columns, " \
+            raise RuntimeError("addMultiNumericalFeature only accept two columns, " \
                 "one for nodes, another for numerical data")
 
         if self._verbose:
@@ -671,9 +698,9 @@ class NodeFeatureLoader(object):
 
         feat = parse_numerical_feat(features, norm=norm)
         assert len(nodes) == feat.shape[0]
-        self._raw_features.append((node_type, nodes, feat))
+        self._raw_features.append((feat_name, node_type, nodes, feat))
 
-    def addNumericalBucketFeature(self, cols, range, bucket_cnt, slide_window_size=0,
+    def addNumericalBucketFeature(self, cols, range, bucket_cnt, feat_name='nf', slide_window_size=0,
         rows=None, norm=None, node_type=None):
         r""" Add numerical data features for nodes by matching them into
         different buckets.
@@ -695,17 +722,26 @@ class NodeFeatureLoader(object):
             (2) [int, int] column numbers for node and numerical data.
             The first column is treated as node name and
             the second is treated as numerical data.
+
+        feat_name: str
+            Feature name.
+            Default: nf
+
         range: list of float or tuple of float
             [low, high]: the range of the numerical value.
             All v_i < low will be set to v_i = low and
             all v_j > high will be set to v_j = high.
+
         bucket_cnt: int
             Number of bucket to use.
+
         slide_window_size: int
             The sliding window used to convert numerical value into bucket number.
+
         rows: numpy.array or list of int
             Which row(s) to load. None to load all.
             Default: None
+
         norm: str
             Which kind of normalization is applied to the features.
             Supported normalization ops are
@@ -758,20 +794,20 @@ class NodeFeatureLoader(object):
 
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2:
-            raise DGLError("addNumericalBucketFeature only accept two columns, " \
+            raise RuntimeError("addNumericalBucketFeature only accept two columns, " \
                 "one for nodes, another for numerical data")
 
         if not isinstance(cols, list) or \
             len(range) != 2 or \
             range[0] >= range[1]:
-            raise DGLError("Range is in format of [low, high]. "\
+            raise RuntimeError("Range is in format of [low, high]. "\
                 "low should be smaller than high")
 
         if bucket_cnt <= 1:
-            raise DGLError("Number of bucket should be larger than 1")
+            raise RuntimeError("Number of bucket should be larger than 1")
 
         if self._verbose:
             print('NodeFeatureLoader.addCategoryFeature " \
@@ -821,9 +857,9 @@ class NodeFeatureLoader(object):
                                              window_size=slide_window_size,
                                              norm=norm)
         assert len(nodes) == feat.shape[0]
-        self._raw_features.append((node_type, nodes, feat))
+        self._raw_features.append((feat_name, node_type, nodes, feat))
 
-    def addWord2VecFeature(self, cols, languages, rows=None, node_type=None):
+    def addWord2VecFeature(self, cols, languages, feat_name='nf', rows=None, node_type=None):
         r""" Add word2vec features for nodes
 
         Two columns of the **input** are chosen, one for
@@ -848,6 +884,10 @@ class NodeFeatureLoader(object):
             please see **Notes**. Multiple languages can
             be listed and one embedding vectors are generated for
             each language and are concatenated together.
+
+        feat_name: str
+            Feature name.
+            Default: nf
 
         rows: numpy.array or list of int
             Which row(s) to load. None to load all.
@@ -884,10 +924,10 @@ class NodeFeatureLoader(object):
 
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2:
-            raise DGLError("addWord2VecFeature only accept two columns, " \
+            raise RuntimeError("addWord2VecFeature only accept two columns, " \
                 "one for nodes, another for string data")
 
         if self._verbose:
@@ -933,7 +973,7 @@ class NodeFeatureLoader(object):
 
         feat = parse_word2vec_feature(features, languages, self._verbose)
         assert len(nodes) == feat.shape[0]
-        self._raw_features.append((node_type, nodes, feat))
+        self._raw_features.append((feat_name, node_type, nodes, feat))
 
     @property
     def node_feat(self):
@@ -1017,10 +1057,18 @@ class EdgeFeatureLoader(object):
 
         Src and dst nodes are converted into consecutive integer ID spaces and
         the edge features are concatenated together.
+
+        Params:
+        node_dicts: dict of dict
+            {node_type: {node_str : node_id}}
+
+        Return:
+            dict
+            {edge_type: (snids, dnids, edge_feats)}
         """
         results = {}
         for raw_feat in self._raw_features:
-            edge_type, src_nodes, dst_nodes, feats = raw_feat
+            feat_name, edge_type, src_nodes, dst_nodes, feats = raw_feat
             if edge_type is None:
                 src_type = None
                 dst_type = None
@@ -1046,23 +1094,27 @@ class EdgeFeatureLoader(object):
             for node in dst_nodes:
                 nid = get_id(dnid_map, node)
                 dnids.append(nid)
-            snids = np.asarray(snids)
-            dnids = np.asarray(dnids)
+            snids = np.asarray(snids, dtype='long')
+            dnids = np.asarray(dnids, dtype='long')
 
             # chech if same edge_type already exists
             # if so concatenate the features.
             if edge_type in results:
-                last_snids, last_dnids, last_feats = results[edge_type]
-                assert last_snids.shape[0] == snids.shape[0], \
-                    "Input features from different columns should have the same shape." \
-                    "but got {} vs. {}".format(last_snids.shape[0], snids.shape[0])
-                results[edge_type] = (last_snids, last_dnids,
-                                     np.concatenate((last_feats, feats), axis=1))
+                if feat_name in results[node_type]:
+                    last_snids, last_dnids, last_feats = results[edge_type][feat_name]
+                    assert last_snids.shape[0] == snids.shape[0], \
+                        "Input features from different columns should have the same shape." \
+                        "but got {} vs. {}".format(last_snids.shape[0], snids.shape[0])
+                    results[edge_type][feat_name] = (last_snids, last_dnids,
+                                                    np.concatenate((last_feats, feats), axis=1))
+                else:
+                    results[edge_type][feat_name] = (snids, dnids, feats)
             else:
-                results[edge_type] = (snids, dnids, feats)
+                results[edge_type] = {}
+                results[edge_type][feat_name] = (snids, dnids, feats)
         return results
 
-    def addNumericalFeature(self, cols, rows=None, norm=None, edge_type=None):
+    def addNumericalFeature(self, cols, feat_name='ef', rows=None, norm=None, edge_type=None):
         r"""Add numerical features for nodes
 
         Three columns of the **input** are chosen, one for
@@ -1083,6 +1135,10 @@ class EdgeFeatureLoader(object):
             The first column is treated as source node name,
             the second column is treated as destination node name and
             the third column is treated as numerical data.
+
+        feat_name: str
+            Feature name.
+            Default: ef
 
         rows: numpy.array or list of int
             Which row(s) to load. None to load all.
@@ -1130,10 +1186,10 @@ class EdgeFeatureLoader(object):
         >>> user_loader.addNumericalFeature(cols=["name", "movie", "rate"])
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 3:
-            raise DGLError("addNumericalFeature only accept three columns, " \
+            raise RuntimeError("addNumericalFeature only accept three columns, " \
                 "first two for source and destination nodes, " \
                 "the last for numerical data")
 
@@ -1191,7 +1247,7 @@ class EdgeFeatureLoader(object):
 
         feat = parse_numerical_feat(features, norm=norm)
         assert len(src_nodes) == feat.shape[0]
-        self._raw_features.append((edge_type, src_nodes, dst_nodes, feat))
+        self._raw_features.append((feat_name, edge_type, src_nodes, dst_nodes, feat))
 
     @property
     def node_feat(self):

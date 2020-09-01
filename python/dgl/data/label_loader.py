@@ -5,7 +5,6 @@ import csv
 
 import numpy as np
 
-from ..base import DGLError, dgl_warning
 from .utils import parse_category_single_feat, parse_category_multi_feat
 from .utils import field2idx, get_id
 
@@ -162,6 +161,16 @@ class NodeLabelLoader(object):
 
         Nodes are converted into consecutive integer ID spaces and
         its corresponding labels are concatenated together.
+
+        Params:
+        node_dicts: dict of dict
+            {node_type: {node_str : node_id}}
+
+        Return:
+            dict
+            {node_type: (train_nids, train_labels,
+                         valid_nids, valid_labels,
+                         test_nids, test_labels)}
         """
         results = {}
         for raw_labels in self._labels:
@@ -177,7 +186,7 @@ class NodeLabelLoader(object):
             for node in nodes:
                 nid = get_id(nid_map, node)
                 nids.append(nid)
-            nids = np.asarray(nids)
+            nids = np.asarray(nids, dtype='long')
 
             # only train
             if train_split == 1.:
@@ -295,10 +304,10 @@ class NodeLabelLoader(object):
                                     rows=np.arange(start=0, stop=100))
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2:
-            raise DGLError("addTrainSet only accept two columns, one for nodes, another for labels")
+            raise RuntimeError("addTrainSet only accept two columns, one for nodes, another for labels")
 
         if multilabel:
             assert separator is not None, "Multi-class label is supported, "\
@@ -367,10 +376,10 @@ class NodeLabelLoader(object):
                                     rows=np.arange(start=100, stop=120))
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2:
-            raise DGLError("addValidSet only accept two columns, one for nodes, another for labels")
+            raise RuntimeError("addValidSet only accept two columns, one for nodes, another for labels")
 
         if multilabel:
             assert separator is not None, "Multi-class label is supported, "\
@@ -439,10 +448,10 @@ class NodeLabelLoader(object):
                                     rows=np.arange(start=120, stop=130))
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2:
-            raise DGLError("addTestSet only accept two columns, one for nodes, another for labels")
+            raise RuntimeError("addTestSet only accept two columns, one for nodes, another for labels")
 
         if multilabel:
             assert separator is not None, "Multi-class label is supported, "\
@@ -515,21 +524,21 @@ class NodeLabelLoader(object):
                                 separator=',')
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2:
-            raise DGLError("addSet only accept two columns, one for nodes, another for labels")
+            raise RuntimeError("addSet only accept two columns, one for nodes, another for labels")
 
         if multilabel:
             assert separator is not None, "Multi-class label is supported, "\
                 "but a separator is required to split the labels"
 
         if not isinstance(split_rate, list) or len(split_rate) != 3:
-            raise DGLError("The split_rate should be a list of three floats")
+            raise RuntimeError("The split_rate should be a list of three floats")
         if split_rate[0] < 0 or split_rate[1] < 0 or split_rate[2] < 0:
-            raise DGLError("Split rates must >= 0.")
+            raise RuntimeError("Split rates must >= 0.")
         if split_rate[0] + split_rate[1] + split_rate[2] != 1.:
-            raise DGLError("The sum of split rates should be 1.")
+            raise RuntimeError("The sum of split rates should be 1.")
 
         nodes, labels, label_map = self._load_labels(cols, multilabel, separator, rows)
         assert len(nodes) == labels.shape[0], \
@@ -701,6 +710,16 @@ class EdgeLabelLoader(object):
 
         Src nodes and dst nodes are converted into consecutive integer ID spaces and
         its corresponding labels are concatenated together.
+
+        Params:
+        node_dicts: dict of dict
+            {node_type: {node_str : node_id}}
+
+        Return:
+            dict
+            {edge_type: ((train_snids, train_dnids, train_labels,
+                          valid_snids, valid_dnids, valid_labels,
+                          test_snids, test_dnids, test_labels)}
         """
         results = {}
         for raw_labels in self._labels:
@@ -733,8 +752,8 @@ class EdgeLabelLoader(object):
             for node in dst_nodes:
                 nid = get_id(dnid_map, node)
                 dnids.append(nid)
-            snids = np.asarray(snids)
-            dnids = np.asarray(dnids)
+            snids = np.asarray(snids, dtype='long')
+            dnids = np.asarray(dnids, dtype='long')
 
             # only train
             if train_split == 1.:
@@ -880,17 +899,17 @@ class EdgeLabelLoader(object):
         """
 
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2 and len(cols) != 3:
-            raise DGLError("addTrainSet accepts two columns " \
+            raise RuntimeError("addTrainSet accepts two columns " \
                            "for source node and destination node." \
                            "or three columns, the first column for source node, " \
                            "the second for destination node, " \
                            "and third for labels")
 
         if edge_type != None and len(edge_type) != 3:
-            raise DGLError("edge_type should be None or a tuple of " \
+            raise RuntimeError("edge_type should be None or a tuple of " \
                 "(src_type, relation_type, dst_type)")
 
         if multilabel:
@@ -977,17 +996,17 @@ class EdgeLabelLoader(object):
 
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2 and len(cols) != 3:
-            raise DGLError("addValidSet accepts two columns " \
+            raise RuntimeError("addValidSet accepts two columns " \
                            "for source node and destination node." \
                            "or three columns, the first column for source node, " \
                            "the second for destination node, " \
                            "and third for labels")
 
         if edge_type != None and len(edge_type) != 3:
-            raise DGLError("edge_type should be None or a tuple of " \
+            raise RuntimeError("edge_type should be None or a tuple of " \
                 "(src_type, relation_type, dst_type)")
 
         if multilabel:
@@ -1073,18 +1092,18 @@ class EdgeLabelLoader(object):
                                     rows=np.arange(start=0, stop=100))
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2 and len(cols) != 3:
             assert len(cols) == 3, "Multi-class label requires one column for labels"
-            raise DGLError("addTestSet accepts two columns " \
+            raise RuntimeError("addTestSet accepts two columns " \
                            "for source node and destination node." \
                            "or three columns, the first column for source node, " \
                            "the second for destination node, " \
                            "and third for labels")
 
         if edge_type != None and len(edge_type) != 3:
-            raise DGLError("edge_type should be None or a tuple of " \
+            raise RuntimeError("edge_type should be None or a tuple of " \
                 "(src_type, relation_type, dst_type)")
 
         if multilabel:
@@ -1174,17 +1193,17 @@ class EdgeLabelLoader(object):
                                 split_rate=[0.7,0.2,0.1])
         """
         if not isinstance(cols, list):
-            raise DGLError("The cols should be a list of string or int")
+            raise RuntimeError("The cols should be a list of string or int")
 
         if len(cols) != 2 and len(cols) != 3:
-            raise DGLError("addSet accepts two columns " \
+            raise RuntimeError("addSet accepts two columns " \
                            "for source node and destination node." \
                            "or three columns, the first column for source node, " \
                            "the second for destination node, " \
                            "and third for labels")
 
         if edge_type != None and len(edge_type) != 3:
-            raise DGLError("edge_type should be None or a tuple of " \
+            raise RuntimeError("edge_type should be None or a tuple of " \
                 "(src_type, relation_type, dst_type)")
 
         if multilabel:
@@ -1193,11 +1212,11 @@ class EdgeLabelLoader(object):
                 "but a separator is required to split the labels"
 
         if not isinstance(split_rate, list) or len(split_rate) != 3:
-            raise DGLError("The split_rate should be a list of three floats")
+            raise RuntimeError("The split_rate should be a list of three floats")
         if split_rate[0] < 0 or split_rate[1] < 0 or split_rate[2] < 0:
-            raise DGLError("Split rates must >= 0.")
+            raise RuntimeError("Split rates must >= 0.")
         if split_rate[0] + split_rate[1] + split_rate[2] != 1.:
-            raise DGLError("The sum of split rates should be 1.")
+            raise RuntimeError("The sum of split rates should be 1.")
 
         src_nodes, dst_nodes, labels, label_map = \
             self._load_labels(cols, multilabel, separator, rows)
