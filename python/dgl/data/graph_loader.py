@@ -5,9 +5,12 @@ import csv
 import numpy as np
 # TODO(xiangsx): Framework agnostic later
 import torch as th
+import dgl
 
-from .utils import save_graphs, load_graphss, save_info, load_info
+from .utils import save_graphs, load_graphs, save_info, load_info
 from .utils import field2idx, get_id
+from .feature_loader import NodeFeatureLoader, EdgeFeatureLoader
+from .label_loader import NodeLabelLoader, EdgeLabelLoader
 
 class EdgeLoader(object):
     r"""EdgeLoader allows users to define graph edges.
@@ -377,6 +380,15 @@ class GraphLoader(object):
         Whether print debug info during parsing
         Default: False
 
+    Note:
+    -----
+
+    **EdgeLoader is used to add edges that neither have features nor appeared in
+    edge labels.** If one edge appears in both appendEdge and appendLabel, it will
+    be added twice. **But if one edge appears in both EdgeFeatureLoader and
+    EdgeLabelLoader, it will only be added once.
+
+
     Example:
 
     ** Create a Graph Loader **
@@ -542,17 +554,23 @@ class GraphLoader(object):
         >>> graphloader.addReverseEdge()
 
         """
-        pass
+        assert self._g.is_homogeneous is False, \
+            'Add reversed edges only work for heterogeneous graph'
+
+        new_g = dgl.add_reverse_edges(self._g, copy_ndata=True, copy_edata=False)
+        for etype in self._g.canonical_etypes:
+            new_g.edges[etype].data = self._g.edges[etype].data
+        self._g = new_g
 
     def process(self):
         """ Parsing EdgeLoaders, FeatureLoaders and LabelLoders to build the DGLGraph
         """
         graphs = {} # edge_type: (s, d, feat)
         nodes = {}
-        edge_feat_results = {}
-        node_feat_results = {}
-        edge_label_results = {}
-        node_label_results = {}
+        edge_feat_results = []
+        node_feat_results = []
+        edge_label_results = []
+        node_label_results = []
 
         if self._verbose:
             print('Start processing graph structure ...')
@@ -560,7 +578,7 @@ class GraphLoader(object):
         for edge_loader in self._edge_loader:
             # {edge_type: (snids, dnids)}
             edge_result = edge_loader.process(self._node_dict)
-            for edge_type, vals in edge_result:
+            for edge_type, vals in edge_result.items():
                 snids, dnids = vals
                 if edge_type in graphs:
                     graphs[edge_type] = (np.concatenate((graphs[edge_type][0], snids)),
@@ -594,15 +612,15 @@ class GraphLoader(object):
                     else:
                         graphs[edge_type] = vals
             else:
-                # {node_type: (node_ids, node_feats)}
+                # {node_type: {feat_name :(node_ids, node_feats)}}
                 node_feat_result = feat_loader.process(self._node_dict)
                 node_feat_results.append(node_feat_result)
 
                 for node_type, vals in node_feat_result.items():
-                    nids, _ = vals
-                    max_nid = int(np.max(nids))
+                    nids, _ = vals[next(iter(vals.keys()))]
+                    max_nid = int(np.max(nids)) + 1
                     if node_type in nodes:
-                        nodes[node_type] = max(nodes[node_type], max_nid)
+                        nodes[node_type] = max(nodes[node_type]+1, max_nid)
                     else:
                         nodes[node_type] = max_nid
 
@@ -692,13 +710,13 @@ class GraphLoader(object):
                 # has edge features
                 if vals[2] is not None:
                     for key, feat in vals[2].items():
-                        g.edges[edge_type].data[key] = feat
+                        g.edges[edge_type].data[key] = th.tensor(feat)
         else:
             g = dgl.graph((graphs[None][0], graphs[None][1]), num_nodes=nodes[None])
             # has edge features
             if graphs[None][2] is not None:
                 for key, feat in graphs[None][2].items():
-                    g.edata[key] = feat
+                    g.edata[key] = th.tensor(feat)
 
         # no need to handle edge features
         # handle node features
@@ -707,10 +725,10 @@ class GraphLoader(object):
             for node_type, vals in node_feats.items():
                 if node_type is None:
                     for key, feat in vals.items():
-                        g.ndata[key] = feat
+                        g.ndata[key] = th.tensor(feat[1])
                 else:
                     for key, feat in vals.items():
-                        g.nodes[node_type].data[key] = feat
+                        g.nodes[node_type].data[key] = th.tensor(feat[1])
 
         if self._verbose:
             print('Done building dgl graph.')
@@ -759,10 +777,10 @@ class GraphLoader(object):
                         test_edge_labels[edge_type] = (test_snids, test_dnids, test_labels)
 
         # create labels and train/valid/test mask
-        assert len(train_edge_labels) >= len(valid_edge_labels),
+        assert len(train_edge_labels) >= len(valid_edge_labels), \
             'The training set should cover all kinds of edge types ' \
             'where the validation set is avaliable.'
-        assert len(train_edge_labels) == len(test_edge_labels),
+        assert len(train_edge_labels) == len(test_edge_labels), \
             'The training set should cover the same edge types as the test set.'
 
         for edge_type, train_val in train_edge_labels:
@@ -819,7 +837,7 @@ class GraphLoader(object):
 
             # add label and train/valid/test masks into g
             if edge_type is None:
-                assert len(train_edge_labels) == 1,
+                assert len(train_edge_labels) == 1, \
                     'Homogeneous graph only supports one type of labels'
                 g.edata['labels'] = labels
                 g.edata['train_mask'] = train_mask
@@ -873,10 +891,10 @@ class GraphLoader(object):
                         test_node_labels[node_type] = (test_nids, test_labels)
 
         # create labels and train/valid/test mask
-        assert len(train_node_labels) >= len(valid_node_labels),
+        assert len(train_node_labels) >= len(valid_node_labels), \
             'The training set should cover all kinds of node types ' \
             'where the validation set is avaliable.'
-        assert len(train_node_labels) == len(test_node_labels),
+        assert len(train_node_labels) == len(test_node_labels), \
             'The training set should cover the same node types as the test set.'
 
         for node_type, train_val in train_node_labels:
@@ -889,7 +907,7 @@ class GraphLoader(object):
             # handle train label
             if train_labels is not None:
                 train_labels = th.tensor(train_labels)
-                labels = th.full(g.num_nodes(node_type), train_labels.shape[1]),
+                labels = th.full((g.num_nodes(node_type), train_labels.shape[1]),
                                  value=-1,
                                  dtype=train_labels.dtype)
                 labels[train_nids] = train_labels
@@ -919,7 +937,7 @@ class GraphLoader(object):
 
             # add label and train/valid/test masks into g
             if node_type is None:
-                assert len(train_node_labels) == 1,
+                assert len(train_node_labels) == 1, \
                     'Homogeneous graph only supports one type of labels'
                 g.ndata['labels'] = labels
                 g.ndata['train_mask'] = train_mask

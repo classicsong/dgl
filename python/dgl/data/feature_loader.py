@@ -578,7 +578,7 @@ class NodeFeatureLoader(object):
         assert len(nodes) == feat.shape[0]
         self._raw_features.append((feat_name, node_type, nodes, feat))
 
-    def addMultiNumericalFeature(self, cols, feat_name='nf', separator, rows=None, norm=None, node_type=None):
+    def addMultiNumericalFeature(self, cols, separator, feat_name='nf', rows=None, norm=None, node_type=None):
         r"""Add numerical features for nodes
 
         Two columns of the **input** are chosen, one for
@@ -597,12 +597,12 @@ class NodeFeatureLoader(object):
             The first column is treated as node name and
             the second is treated as category data.
 
+        separator: str
+            Delimiter(separator) used to split category data.
+
         feat_name: str
             Feature name.
             Default: nf
-
-        separator: str
-            Delimiter(separator) used to split category data.
 
         rows: numpy.array or list of int
             Which row(s) to load. None to load all.
@@ -1100,7 +1100,7 @@ class EdgeFeatureLoader(object):
             # chech if same edge_type already exists
             # if so concatenate the features.
             if edge_type in results:
-                if feat_name in results[node_type]:
+                if feat_name in results[edge_type]:
                     last_snids, last_dnids, last_feats = results[edge_type][feat_name]
                     assert last_snids.shape[0] == snids.shape[0], \
                         "Input features from different columns should have the same shape." \

@@ -352,125 +352,6 @@ def create_category_node_feat(tmpdir, file_name, separator='\t'):
     node_feat_f.write("node3{}A{}C{}A,C\n".format(separator,separator,separator))
     node_feat_f.close()
 
-# @unittest.skip("LabelBinarizer and MultiLabelBinarizer is not included in CI env")
-def test_node_category_feature_loader():
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        create_category_node_feat(Path(tmpdirname), 'node_category_feat.csv')
-
-        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
-                                                          'node_category_feat.csv'))
-        feat_loader.addCategoryFeature([0, 1])
-        feat_loader.addCategoryFeature(['node', 'feat1'], norm='row', node_type='node')
-        feat_loader.addCategoryFeature(['node', 'feat1'], norm='col', node_type='node')
-        f_1 = feat_loader._raw_features[0]
-        f_2 = feat_loader._raw_features[1]
-        f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
-        assert np.allclose(np.array([[1,0],[1,0],[0,1],[1,0]]),
-                           f_1[2])
-        assert np.allclose(np.array([[1,0],[1,0],[0,1],[1,0]]),
-                           f_2[2])
-        assert np.allclose(np.array([[1./3.,0],[1./3.,0],[0,1],[1./3.,0]]),
-                           f_3[2])
-
-        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
-                                                          'node_category_feat.csv'))
-        feat_loader.addCategoryFeature([0, 1, 2])
-        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'], norm='row', node_type='node')
-        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'], norm='col', node_type='node')
-        f_1 = feat_loader._raw_features[0]
-        f_2 = feat_loader._raw_features[1]
-        f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
-        assert np.allclose(np.array([[1,1,0],[1,0,0],[0,1,1],[1,0,1]]),
-                           f_1[2])
-        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0,0.5,0.5],[0.5,0,0.5]]),
-                           f_2[2])
-        assert np.allclose(np.array([[1./3.,1./2.,0],
-                                     [1./3.,0,    0],
-                                     [0,    1./2.,1./2.],
-                                     [1./3.,0,    1./2.]]),
-                           f_3[2])
-
-        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
-                                                          'node_category_feat.csv'))
-        feat_loader.addCategoryFeature([0, 1, 2], rows=[0,1,3])
-        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'],
-                                        rows=[0,1,3], norm='row', node_type='node')
-        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'],
-                                        rows=[0,1,3], norm='col', node_type='node')
-        f_1 = feat_loader._raw_features[0]
-        f_2 = feat_loader._raw_features[1]
-        f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
-        assert np.allclose(np.array([[1,1,0],[1,0,0],[1,0,1]]),
-                           f_1[2])
-        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0.5,0,0.5]]),
-                           f_2[2])
-        assert np.allclose(np.array([[1./3.,1.,0.],
-                                     [1./3.,0.,0.],
-                                     [1./3.,0.,1.]]),
-                           f_3[2])
-
-
-        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
-                                                                'node_category_feat.csv'))
-        feat_loader.addMultiCategoryFeature([0, 3], separator=',')
-        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',', norm='row', node_type='node')
-        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',', norm='col', node_type='node')
-        f_1 = feat_loader._raw_features[0]
-        f_2 = feat_loader._raw_features[1]
-        f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
-        assert np.allclose(np.array([[1,1,0],[1,0,0],[0,1,1],[1,0,1]]),
-                           f_1[2])
-        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0,0.5,0.5],[0.5,0,0.5]]),
-                           f_2[2])
-        assert np.allclose(np.array([[1./3.,1./2.,0],
-                                     [1./3.,0,    0],
-                                     [0,    1./2.,1./2.],
-                                     [1./3.,0,    1./2.]]),
-                           f_3[2])
-
-        feat_loader.addMultiCategoryFeature([0, 3], rows=[0,1,3], separator=',')
-        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',',
-                                            rows=[0,1,3], norm='row', node_type='node')
-        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',',
-                                            rows=[0,1,3], norm='col', node_type='node')
-        f_1 = feat_loader._raw_features[3]
-        f_2 = feat_loader._raw_features[4]
-        f_3 = feat_loader._raw_features[5]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
-        assert np.allclose(np.array([[1,1,0],[1,0,0],[1,0,1]]),
-                           f_1[2])
-        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0.5,0,0.5]]),
-                           f_2[2])
-        assert np.allclose(np.array([[1./3.,1.,0.],
-                                     [1./3.,0.,0.],
-                                     [1./3.,0.,1.]]),
-                           f_3[2])
-
 def create_numerical_node_feat(tmpdir, file_name, sep='\t'):
     node_feat_f = open(os.path.join(tmpdir, file_name), "w")
     node_feat_f.write("node{}feat1{}feat2{}feat3{}feat4\n".format(sep,sep,sep,sep))
@@ -493,6 +374,210 @@ def create_numerical_bucket_node_feat(tmpdir, file_name, sep='\t'):
     node_feat_f.write("node1{}0{}40.\n".format(sep,sep,sep))
     node_feat_f.close()
 
+def create_numerical_edge_feat(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_s{}node_d{}feat1\n".format(sep,sep))
+    node_feat_f.write("node1{}node4{}1.\n".format(sep,sep))
+    node_feat_f.write("node2{}node5{}2.\n".format(sep,sep))
+    node_feat_f.write("node3{}node6{}0.\n".format(sep,sep))
+    node_feat_f.write("node3{}node3{}4.\n".format(sep,sep))
+    node_feat_f.close()
+
+def create_word_node_feat(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}feat1{}feat2{}feat3\n".format(separator,separator,separator))
+    node_feat_f.write("node1{}A{}B{}24\n".format(separator,separator,separator))
+    node_feat_f.write("node2{}A{}{}1\n".format(separator,separator,separator))
+    node_feat_f.write("node3{}C{}B{}12\n".format(separator,separator,separator))
+    node_feat_f.write("node3{}A{}C{}13\n".format(separator,separator,separator))
+    node_feat_f.close()
+
+def create_multiple_node_feat(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}feat1{}feat2{}feat3\n".format(separator,separator,separator))
+    node_feat_f.write("node1{}A{}0.1{}A,B\n".format(separator,separator,separator))
+    node_feat_f.write("node2{}A{}0.3{}A\n".format(separator,separator,separator))
+    node_feat_f.write("node3{}C{}0.2{}C,B\n".format(separator,separator,separator))
+    node_feat_f.write("node4{}A{}-1.1{}A,C\n".format(separator,separator,separator))
+    node_feat_f.close()
+
+def create_multiple_edge_feat(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_s{}node_d{}feat1{}feat2{}feat3\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node1{}node_a{}0.2{}0.1{}1.1\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node2{}node_b{}-0.3{}0.3{}1.2\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node3{}node_c{}0.3{}0.2{}-1.2\n".format(sep,sep,sep,sep))
+    node_feat_f.write("node4{}node_d{}-0.2{}-1.1{}0.9\n".format(sep,sep,sep,sep))
+    node_feat_f.close()
+
+def create_node_labels(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}label1{}label2\n".format(separator,separator))
+    node_feat_f.write("node1{}A{}D,A\n".format(separator,separator))
+    node_feat_f.write("node2{}A{}E,C,D\n".format(separator,separator))
+    node_feat_f.write("node3{}C{}F,A,B\n".format(separator,separator))
+    node_feat_f.write("node4{}A{}G,E\n".format(separator,separator))
+    node_feat_f.close()
+
+def create_edge_labels(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_0{}node_1{}label1{}label2\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}node4{}A{}D,A\n".format(sep,sep,sep))
+    node_feat_f.write("node2{}node3{}A{}E,C,D\n".format(sep,sep,sep))
+    node_feat_f.write("node3{}node2{}C{}F,A,B\n".format(sep,sep,sep))
+    node_feat_f.write("node4{}node1{}A{}G,E\n".format(sep,sep,sep))
+    node_feat_f.close()
+
+def create_graph_edges(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_0{}node_1{}rel_1{}rel_2\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}node4{}A{}C\n".format(sep,sep,sep))
+    node_feat_f.write("node2{}node3{}A{}C\n".format(sep,sep,sep))
+    node_feat_f.write("node3{}node2{}A{}C\n".format(sep,sep,sep))
+    node_feat_f.write("node4{}node1{}A{}B\n".format(sep,sep,sep))
+    node_feat_f.write("node4{}node4{}A{}A\n".format(sep,sep,sep))
+    node_feat_f.close()
+
+def create_multiple_label(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write(
+        "node{}label1{}label2{}label3{}label4{}label5{}node_d{}node_d2{}node_d3\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.write("node1{}A{}A{}C{}A,B{}A,C{}node3{}node1{}node4\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.write("node2{}B{}B{}B{}A{}B{}node4{}node2{}node5\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.write("node3{}C{}C{}A{}C,B{}A{}node5{}node1{}node6\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.write("node4{}A{}A{}A{}A,C{}A,B{}node6{}node2{}node7\n".format(
+        sep,sep,sep,sep,sep,sep,sep,sep))
+    node_feat_f.close()
+
+# @unittest.skip("LabelBinarizer and MultiLabelBinarizer is not included in CI env")
+def test_node_category_feature_loader():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_category_node_feat(Path(tmpdirname), 'node_category_feat.csv')
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_category_feat.csv'))
+        feat_loader.addCategoryFeature([0, 1], feat_name='tf')
+        feat_loader.addCategoryFeature(['node', 'feat1'], norm='row', node_type='node')
+        feat_loader.addCategoryFeature(['node', 'feat1'], norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] == 'tf'
+        assert f_2[0] == 'nf'
+        assert f_3[0] == 'nf'
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
+        assert np.allclose(np.array([[1,0],[1,0],[0,1],[1,0]]),
+                           f_1[3])
+        assert np.allclose(np.array([[1,0],[1,0],[0,1],[1,0]]),
+                           f_2[3])
+        assert np.allclose(np.array([[1./3.,0],[1./3.,0],[0,1],[1./3.,0]]),
+                           f_3[3])
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_category_feat.csv'))
+        feat_loader.addCategoryFeature([0, 1, 2])
+        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'], norm='row', node_type='node')
+        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'], norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[0] == 'nf'
+        assert f_2[0] == 'nf'
+        assert f_3[0] == 'nf'
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
+        assert np.allclose(np.array([[1,1,0],[1,0,0],[0,1,1],[1,0,1]]),
+                           f_1[3])
+        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0,0.5,0.5],[0.5,0,0.5]]),
+                           f_2[3])
+        assert np.allclose(np.array([[1./3.,1./2.,0],
+                                     [1./3.,0,    0],
+                                     [0,    1./2.,1./2.],
+                                     [1./3.,0,    1./2.]]),
+                           f_3[3])
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                          'node_category_feat.csv'))
+        feat_loader.addCategoryFeature([0, 1, 2], rows=[0,1,3])
+        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'],
+                                        rows=[0,1,3], norm='row', node_type='node')
+        feat_loader.addCategoryFeature(['node', 'feat1', 'feat2'],
+                                        rows=[0,1,3], norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
+        assert np.allclose(np.array([[1,1,0],[1,0,0],[1,0,1]]),
+                           f_1[3])
+        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0.5,0,0.5]]),
+                           f_2[3])
+        assert np.allclose(np.array([[1./3.,1.,0.],
+                                     [1./3.,0.,0.],
+                                     [1./3.,0.,1.]]),
+                           f_3[3])
+
+
+        feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
+                                                                'node_category_feat.csv'))
+        feat_loader.addMultiCategoryFeature([0, 3], separator=',')
+        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',', norm='row', node_type='node')
+        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',', norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[0]
+        f_2 = feat_loader._raw_features[1]
+        f_3 = feat_loader._raw_features[2]
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
+        assert np.allclose(np.array([[1,1,0],[1,0,0],[0,1,1],[1,0,1]]),
+                           f_1[3])
+        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0,0.5,0.5],[0.5,0,0.5]]),
+                           f_2[3])
+        assert np.allclose(np.array([[1./3.,1./2.,0],
+                                     [1./3.,0,    0],
+                                     [0,    1./2.,1./2.],
+                                     [1./3.,0,    1./2.]]),
+                           f_3[3])
+
+        feat_loader.addMultiCategoryFeature([0, 3], rows=[0,1,3], separator=',')
+        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',',
+                                            rows=[0,1,3], norm='row', node_type='node')
+        feat_loader.addMultiCategoryFeature(['node', 'feat3'], separator=',',
+                                            rows=[0,1,3], norm='col', node_type='node')
+        f_1 = feat_loader._raw_features[3]
+        f_2 = feat_loader._raw_features[4]
+        f_3 = feat_loader._raw_features[5]
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
+        assert np.allclose(np.array([[1,1,0],[1,0,0],[1,0,1]]),
+                           f_1[3])
+        assert np.allclose(np.array([[0.5,0.5,0],[1,0,0],[0.5,0,0.5]]),
+                           f_2[3])
+        assert np.allclose(np.array([[1./3.,1.,0.],
+                                     [1./3.,0.,0.],
+                                     [1./3.,0.,1.]]),
+                           f_3[3])
+
 def test_node_numerical_feature_loader():
     import tempfile
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -506,21 +591,24 @@ def test_node_numerical_feature_loader():
         f_1 = feat_loader._raw_features[0]
         f_2 = feat_loader._raw_features[1]
         f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
+        assert f_1[0] == 'nf'
+        assert f_2[0] == 'nf'
+        assert f_3[0] == 'nf'
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
         assert np.allclose(np.array([[1.],[2.],[0.],[4.]]),
-                           f_1[2])
+                           f_1[3])
         assert np.allclose(np.array([[1./7.],[2./7.],[0.],[4./7.]]),
-                           f_2[2])
+                           f_2[3])
         assert np.allclose(np.array([[1./4.],[2./4],[0.],[1.]]),
-                           f_3[2])
+                           f_3[3])
 
         feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
                                                           'node_numerical_feat.csv'))
-        feat_loader.addNumericalFeature([0,1,2,3])
+        feat_loader.addNumericalFeature([0,1,2,3],feat_name='tf')
         feat_loader.addNumericalFeature(['node', 'feat1','feat2','feat3'],
                                         norm='standard',
                                         node_type='node')
@@ -530,17 +618,20 @@ def test_node_numerical_feature_loader():
         f_1 = feat_loader._raw_features[0]
         f_2 = feat_loader._raw_features[1]
         f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
+        assert f_1[0] == 'tf'
+        assert f_2[0] == 'nf'
+        assert f_3[0] == 'nf'
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
         assert np.allclose(np.array([[1.,2.,0.],[2.,-1.,0.],[0.,0.,0.],[4.,-2.,0.]]),
-                           f_1[2])
+                           f_1[3])
         assert np.allclose(np.array([[1./7.,2./5.,0.],[2./7.,-1./5.,0.],[0.,0.,0.],[4./7.,-2./5.,0.]]),
-                           f_2[2])
+                           f_2[3])
         assert np.allclose(np.array([[1./4.,1.,0.],[2./4,1./4.,0.],[0.,2./4.,0.],[1.,0.,0.]]),
-                           f_3[2])
+                           f_3[3])
 
         feat_loader.addNumericalFeature([0,1,2,3],rows=[1,2,3])
         feat_loader.addNumericalFeature(['node', 'feat1','feat2','feat3'],
@@ -554,17 +645,17 @@ def test_node_numerical_feature_loader():
         f_1 = feat_loader._raw_features[3]
         f_2 = feat_loader._raw_features[4]
         f_3 = feat_loader._raw_features[5]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
         assert np.allclose(np.array([[2.,-1.,0.],[0.,0.,0.],[4.,-2.,0.]]),
-                           f_1[2])
+                           f_1[3])
         assert np.allclose(np.array([[2./6.,-1./3.,0.],[0.,0.,0.],[4./6.,-2./3.,0.]]),
-                           f_2[2])
+                           f_2[3])
         assert np.allclose(np.array([[2./4.,1./2.,0.],[0.,1.,0.],[1.,0.,0.]]),
-                           f_3[2])
+                           f_3[3])
 
         feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
                                                           'node_numerical_feat.csv'))
@@ -580,17 +671,17 @@ def test_node_numerical_feature_loader():
         f_1 = feat_loader._raw_features[0]
         f_2 = feat_loader._raw_features[1]
         f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
         assert np.allclose(np.array([[1.,2.,0.],[2.,-1.,0.],[0.,0.,0.],[4.,-2.,0.]]),
-                           f_1[2])
+                           f_1[3])
         assert np.allclose(np.array([[1./7.,2./5.,0.],[2./7.,-1./5.,0.],[0.,0.,0.],[4./7.,-2./5.,0.]]),
-                           f_2[2])
+                           f_2[3])
         assert np.allclose(np.array([[1./4.,1.,0.],[2./4,1./4.,0.],[0.,2./4.,0.],[1.,0.,0.]]),
-                           f_3[2])
+                           f_3[3])
 
         feat_loader.addMultiNumericalFeature([0,4], separator=',', rows=[1,2,3])
         feat_loader.addMultiNumericalFeature(['node', 'feat4'],
@@ -606,17 +697,17 @@ def test_node_numerical_feature_loader():
         f_1 = feat_loader._raw_features[3]
         f_2 = feat_loader._raw_features[4]
         f_3 = feat_loader._raw_features[5]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
         assert np.allclose(np.array([[2.,-1.,0.],[0.,0.,0.],[4.,-2.,0.]]),
-                           f_1[2])
+                           f_1[3])
         assert np.allclose(np.array([[2./6.,-1./3.,0.],[0.,0.,0.],[4./6.,-2./3.,0.]]),
-                           f_2[2])
+                           f_2[3])
         assert np.allclose(np.array([[2./4.,1./2.,0.],[0.,1.,0.],[1.,0.,0.]]),
-                           f_3[2])
+                           f_3[3])
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         create_numerical_bucket_node_feat(Path(tmpdirname), 'node_numerical_bucket_feat.csv')
@@ -624,6 +715,7 @@ def test_node_numerical_feature_loader():
         feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
                                                           'node_numerical_bucket_feat.csv'))
         feat_loader.addNumericalBucketFeature([0, 2],
+                                              feat_name='tf',
                                               range=[10,30],
                                               bucket_cnt=2)
         feat_loader.addNumericalBucketFeature(['node', 'feat2'],
@@ -637,20 +729,23 @@ def test_node_numerical_feature_loader():
         f_1 = feat_loader._raw_features[0]
         f_2 = feat_loader._raw_features[1]
         f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
+        assert f_1[0] == 'tf'
+        assert f_2[0] == 'nf'
+        assert f_3[0] == 'nf'
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
         assert np.allclose(np.array([[1., 0.], [1., 0.], [1., 0.], [0., 1.],
                                     [1., 0.], [0., 1.], [0., 1.], [0., 1.]]),
-                           f_1[2])
+                           f_1[3])
         assert np.allclose(np.array([[1., 0.], [1., 0.], [1., 0.], [0., 1.],
                                     [1., 0.], [0., 1.], [0., 1.], [0., 1.]]),
-                           f_2[2])
+                           f_2[3])
         assert np.allclose(np.array([[1./4., 0.], [1./4., 0.], [1./4., 0.], [0., 1./4],
                                      [1./4., 0.], [0., 1./4.], [0., 1./4.], [0., 1./4.]]),
-                           f_3[2])
+                           f_3[3])
 
         feat_loader.addNumericalBucketFeature([0, 2],
                                               rows=[0,2,3,4,5,6],
@@ -669,24 +764,25 @@ def test_node_numerical_feature_loader():
         f_1 = feat_loader._raw_features[3]
         f_2 = feat_loader._raw_features[4]
         f_3 = feat_loader._raw_features[5]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
         assert np.allclose(np.array([[1., 0.], [1., 0.], [0., 1.],
                                      [1., 0.], [0., 1.], [0., 1.]]),
-                           f_1[2])
+                           f_1[3])
         assert np.allclose(np.array([[1., 0.], [1., 0.], [0., 1.],
                                      [1., 0.], [0., 1.], [0., 1.]]),
-                           f_2[2])
+                           f_2[3])
         assert np.allclose(np.array([[1./3., 0.], [1./3., 0.], [0., 1./3],
                                      [1./3., 0.], [0., 1./3.], [0., 1./3.]]),
-                           f_3[2])
+                           f_3[3])
 
         feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
                                                           'node_numerical_bucket_feat.csv'))
         feat_loader.addNumericalBucketFeature([0, 2],
+                                              feat_name='tf',
                                               range=[10,30],
                                               bucket_cnt=4,
                                               slide_window_size=10.)
@@ -703,11 +799,14 @@ def test_node_numerical_feature_loader():
         f_1 = feat_loader._raw_features[0]
         f_2 = feat_loader._raw_features[1]
         f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
+        assert f_1[0] == 'tf'
+        assert f_2[0] == 'nf'
+        assert f_3[0] == 'nf'
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
         assert np.allclose(np.array([[1., 0., 0., 0],
                                      [1., 0., 0., 0],
                                      [1., 1., 1., 0.],
@@ -716,7 +815,7 @@ def test_node_numerical_feature_loader():
                                      [0., 0., 1., 1.],
                                      [0., 0., 0., 1.],
                                      [0., 0., 0., 1.]]),
-                           f_1[2])
+                           f_1[3])
         assert np.allclose(np.array([[1., 0., 0., 0],
                                      [1., 0., 0., 0],
                                      [1./3., 1./3., 1./3., 0.],
@@ -725,7 +824,7 @@ def test_node_numerical_feature_loader():
                                      [0., 0., 1./2., 1./2.],
                                      [0., 0., 0., 1.],
                                      [0., 0., 0., 1.]]),
-                           f_2[2])
+                           f_2[3])
         assert np.allclose(np.array([[1./4., 0.,    0.,    0],
                                      [1./4., 0.,    0.,    0],
                                      [1./4., 1./3., 1./3., 0.],
@@ -734,16 +833,7 @@ def test_node_numerical_feature_loader():
                                      [0.,    0.,    1./3., 1./4.],
                                      [0.,    0.,    0.,    1./4.],
                                      [0.,    0.,    0.,    1./4.]]),
-                           f_3[2])
-
-def create_numerical_edge_feat(tmpdir, file_name, sep='\t'):
-    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
-    node_feat_f.write("node_s{}node_d{}feat1\n".format(sep,sep))
-    node_feat_f.write("node1{}node4{}1.\n".format(sep,sep))
-    node_feat_f.write("node2{}node5{}2.\n".format(sep,sep))
-    node_feat_f.write("node3{}node6{}0.\n".format(sep,sep))
-    node_feat_f.write("node3{}node3{}4.\n".format(sep,sep))
-    node_feat_f.close()
+                           f_3[3])
 
 def test_edge_numerical_feature_loader():
     import tempfile
@@ -752,7 +842,7 @@ def test_edge_numerical_feature_loader():
 
         feat_loader = data.EdgeFeatureLoader(os.path.join(tmpdirname,
                                                           'edge_numerical_feat.csv'))
-        feat_loader.addNumericalFeature([0, 1, 2])
+        feat_loader.addNumericalFeature([0, 1, 2], feat_name='tf')
         feat_loader.addNumericalFeature(['node_s', 'node_d', 'feat1'],
                                         norm='standard',
                                         edge_type=('src', 'rel', 'dst'))
@@ -762,21 +852,24 @@ def test_edge_numerical_feature_loader():
         f_1 = feat_loader._raw_features[0]
         f_2 = feat_loader._raw_features[1]
         f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == ('src', 'rel', 'dst')
-        assert f_3[0] == ('dst', 'rev-rel', 'src')
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == ['node1','node2','node3','node3']
-        assert f_3[1] == ['node4','node5','node6','node3']
+        assert f_1[0] == 'tf'
+        assert f_2[0] == 'ef'
+        assert f_3[0] == 'ef'
+        assert f_1[1] is None
+        assert f_2[1] == ('src', 'rel', 'dst')
+        assert f_3[1] == ('dst', 'rev-rel', 'src')
         assert f_1[2] == f_2[2]
-        assert f_1[2] == ['node4','node5','node6','node3']
-        assert f_3[2] == ['node1','node2','node3','node3']
+        assert f_1[2] == ['node1','node2','node3','node3']
+        assert f_3[2] == ['node4','node5','node6','node3']
+        assert f_1[3] == f_2[3]
+        assert f_1[3] == ['node4','node5','node6','node3']
+        assert f_3[3] == ['node1','node2','node3','node3']
         assert np.allclose(np.array([[1.],[2.],[0.],[4.]]),
-                           f_1[3])
+                           f_1[4])
         assert np.allclose(np.array([[1./7.],[2./7.],[0.],[4./7.]]),
-                           f_2[3])
+                           f_2[4])
         assert np.allclose(np.array([[1./4.],[2./4],[0.],[1.]]),
-                           f_3[3])
+                           f_3[4])
         feat_loader.addNumericalFeature(['node_s', 'node_d', 'feat1'],
                                         rows=[1,2,3],
                                         norm='standard',
@@ -787,29 +880,18 @@ def test_edge_numerical_feature_loader():
                                         edge_type=('dst', 'rev-rel', 'src'))
         f_1 = feat_loader._raw_features[3]
         f_2 = feat_loader._raw_features[4]
-        assert f_1[0] == ('src', 'rel', 'dst')
-        assert f_2[0] == ('dst', 'rev-rel', 'src')
-        assert f_1[1] == ['node2','node3','node3']
-        assert f_2[1] == ['node5','node6','node3']
-        assert f_1[2] == ['node5','node6','node3']
-        assert f_2[2] == ['node2','node3','node3']
+        assert f_1[1] == ('src', 'rel', 'dst')
+        assert f_2[1] == ('dst', 'rev-rel', 'src')
+        assert f_1[2] == ['node2','node3','node3']
+        assert f_2[2] == ['node5','node6','node3']
+        assert f_1[3] == ['node5','node6','node3']
+        assert f_2[3] == ['node2','node3','node3']
         assert np.allclose(np.array([[2./6.],[0.],[4./6.]]),
-                           f_1[3])
+                           f_1[4])
         assert np.allclose(np.array([[2./4],[0.],[1.]]),
-                           f_2[3])
+                           f_2[4])
 
-
-
-def create_word_node_feat(tmpdir, file_name, separator='\t'):
-    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
-    node_feat_f.write("node{}feat1{}feat2{}feat3\n".format(separator,separator,separator))
-    node_feat_f.write("node1{}A{}B{}24\n".format(separator,separator,separator))
-    node_feat_f.write("node2{}A{}{}1\n".format(separator,separator,separator))
-    node_feat_f.write("node3{}C{}B{}12\n".format(separator,separator,separator))
-    node_feat_f.write("node3{}A{}C{}13\n".format(separator,separator,separator))
-    node_feat_f.close()
-
-@unittest.skip("spacy language test is too heavy")
+# @unittest.skip("spacy language test is too heavy")
 def test_node_word2vec_feature_loader():
     import tempfile
     import spacy
@@ -818,7 +900,7 @@ def test_node_word2vec_feature_loader():
 
         feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
                                                           'node_word_feat.csv'))
-        feat_loader.addWord2VecFeature([0, 1], languages=['en_core_web_lg'])
+        feat_loader.addWord2VecFeature([0, 1], languages=['en_core_web_lg'], feat_name='tf')
         feat_loader.addWord2VecFeature(['node', 'feat1'],
                                        languages=['en_core_web_lg'],
                                        node_type='node')
@@ -828,19 +910,22 @@ def test_node_word2vec_feature_loader():
         f_1 = feat_loader._raw_features[0]
         f_2 = feat_loader._raw_features[1]
         f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
-        assert np.allclose(f_1[2], f_2[2])
-        assert np.allclose(f_1[2], f_3[2])
+        assert f_1[0] == 'tf'
+        assert f_2[0] == 'nf'
+        assert f_3[0] == 'nf'
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
+        assert np.allclose(f_1[3], f_2[3])
+        assert np.allclose(f_1[3], f_3[3])
         nlp = spacy.load('en_core_web_lg')
         assert np.allclose(np.array([nlp("A").vector,
                                      nlp("A").vector,
                                      nlp("C").vector,
                                      nlp("A").vector]),
-                           f_1[2])
+                           f_1[3])
 
         feat_loader.addWord2VecFeature([0, 3], languages=['en_core_web_lg', 'fr_core_news_lg'])
         feat_loader.addWord2VecFeature(['node', 'feat3'],
@@ -852,19 +937,19 @@ def test_node_word2vec_feature_loader():
         f_1 = feat_loader._raw_features[3]
         f_2 = feat_loader._raw_features[4]
         f_3 = feat_loader._raw_features[5]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
-        assert np.allclose(f_1[2], f_2[2])
-        assert np.allclose(f_1[2], f_3[2])
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
+        assert np.allclose(f_1[3], f_2[3])
+        assert np.allclose(f_1[3], f_3[3])
         nlp1 = spacy.load('fr_core_news_lg')
         assert np.allclose(np.array([np.concatenate((nlp("24").vector, nlp1("24").vector)),
                                      np.concatenate((nlp("1").vector, nlp1("1").vector)),
                                      np.concatenate((nlp("12").vector, nlp1("12").vector)),
                                      np.concatenate((nlp("13").vector, nlp1("13").vector))]),
-                           f_1[2])
+                           f_1[3])
 
         feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname,
                                                           'node_word_feat.csv'))
@@ -882,26 +967,17 @@ def test_node_word2vec_feature_loader():
         f_1 = feat_loader._raw_features[0]
         f_2 = feat_loader._raw_features[1]
         f_3 = feat_loader._raw_features[2]
-        assert f_1[0] is None
-        assert f_2[0] == 'node'
-        assert f_3[0] == 'node'
-        assert f_1[1] == f_2[1]
-        assert f_1[1] == f_3[1]
-        assert np.allclose(f_1[2], f_2[2])
-        assert np.allclose(f_1[2], f_3[2])
+        assert f_1[1] is None
+        assert f_2[1] == 'node'
+        assert f_3[1] == 'node'
+        assert f_1[2] == f_2[2]
+        assert f_1[2] == f_3[2]
+        assert np.allclose(f_1[3], f_2[3])
+        assert np.allclose(f_1[3], f_3[3])
         nlp1 = spacy.load('fr_core_news_lg')
         assert np.allclose(np.array([np.concatenate((nlp("1").vector, nlp1("1").vector)),
                                      np.concatenate((nlp("12").vector, nlp1("12").vector))]),
-                           f_1[2])
-
-def create_node_labels(tmpdir, file_name, separator='\t'):
-    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
-    node_feat_f.write("node{}label1{}label2\n".format(separator,separator))
-    node_feat_f.write("node1{}A{}D,A\n".format(separator,separator))
-    node_feat_f.write("node2{}A{}E,C,D\n".format(separator,separator))
-    node_feat_f.write("node3{}C{}F,A,B\n".format(separator,separator))
-    node_feat_f.write("node4{}A{}G,E\n".format(separator,separator))
-    node_feat_f.close()
+                           f_1[3])
 
 def test_node_label_loader():
     import tempfile
@@ -975,14 +1051,6 @@ def test_node_label_loader():
         assert l_3[3] == (0., 0., 1.)
         assert l_4[3] == (0.5, 0.25, 0.25)
 
-def create_edge_labels(tmpdir, file_name, sep='\t'):
-    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
-    node_feat_f.write("node_0{}node_1{}label1{}label2\n".format(sep,sep,sep))
-    node_feat_f.write("node1{}node4{}A{}D,A\n".format(sep,sep,sep))
-    node_feat_f.write("node2{}node3{}A{}E,C,D\n".format(sep,sep,sep))
-    node_feat_f.write("node3{}node2{}C{}F,A,B\n".format(sep,sep,sep))
-    node_feat_f.write("node4{}node1{}A{}G,E\n".format(sep,sep,sep))
-    node_feat_f.close()
 
 def test_edge_label_loader():
     import tempfile
@@ -1071,16 +1139,6 @@ def test_edge_label_loader():
         assert l_2[4] == (0., 1., 0.)
         assert l_3[4] == (0., 0., 1.)
         assert l_4[4] == (0.5, 0.25, 0.25)
-
-def create_graph_edges(tmpdir, file_name, sep='\t'):
-    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
-    node_feat_f.write("node_0{}node_1{}rel_1{}rel_2\n".format(sep,sep,sep))
-    node_feat_f.write("node1{}node4{}A{}C\n".format(sep,sep,sep))
-    node_feat_f.write("node2{}node3{}A{}C\n".format(sep,sep,sep))
-    node_feat_f.write("node3{}node2{}A{}C\n".format(sep,sep,sep))
-    node_feat_f.write("node4{}node1{}A{}B\n".format(sep,sep,sep))
-    node_feat_f.write("node4{}node4{}A{}A\n".format(sep,sep,sep))
-    node_feat_f.close()
 
 def test_edge_loader():
     import tempfile
@@ -1180,15 +1238,6 @@ def test_edge_loader():
         assert e_8[2] == ['node1']
         assert e_9[2] == ['node4']
 
-def create_multiple_node_feat(tmpdir, file_name, separator='\t'):
-    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
-    node_feat_f.write("node{}feat1{}feat2{}feat3\n".format(separator,separator,separator))
-    node_feat_f.write("node1{}A{}0.1{}A,B\n".format(separator,separator,separator))
-    node_feat_f.write("node2{}A{}0.3{}A\n".format(separator,separator,separator))
-    node_feat_f.write("node3{}C{}0.2{}C,B\n".format(separator,separator,separator))
-    node_feat_f.write("node4{}A{}-1.1{}A,C\n".format(separator,separator,separator))
-    node_feat_f.close()
-
 def test_node_feature_process():
     import tempfile
     with tempfile.TemporaryDirectory() as tmpdirname:
@@ -1203,7 +1252,7 @@ def test_node_feature_process():
         node_dicts = {}
         result = feat_loader.process(node_dicts)
         assert len(result) == 1
-        nids, feats = result[None]
+        nids, feats = result[None]['nf']
         assert np.allclose(np.array([0,1,2,3]), nids)
         assert np.allclose(np.concatenate([np.array([[0.1/1.7],[0.3/1.7],[0.2/1.7],[-1.1/1.7]]),
                                            np.array([[1.,0.],[1.,0.],[0.,1.],[1.,0.]]),
@@ -1219,7 +1268,7 @@ def test_node_feature_process():
                              'node3':1,
                              'node4':0}}
         result = feat_loader.process(node_dicts)
-        nids, feats = result[None]
+        nids, feats = result[None]['nf']
         assert np.allclose(np.array([3,2,1,0]), nids)
         assert np.allclose(np.concatenate([np.array([[0.1/1.7],[0.3/1.7],[0.2/1.7],[-1.1/1.7]]),
                                            np.array([[1.,0.],[1.,0.],[0.,1.],[1.,0.]]),
@@ -1239,25 +1288,16 @@ def test_node_feature_process():
         result = feat_loader.process(node_dicts)
         assert len(result) == 2
         assert len(node_dicts) == 2
-        nids, feats = result['n1']
+        nids, feats = result['n1']['nf']
         assert np.allclose(np.array([0,1,2,3]), nids)
         assert np.allclose(np.concatenate([np.array([[1.,0.],[1.,0.],[0.,1.],[1.,0.]]),
                                            np.array([[1.,1.,0.],[1.,0.,0.],[0.,1.,1.],[1.,0.,1.]])],
                                            axis=1),
                            feats)
-        nids, feats = result['n2']
+        nids, feats = result['n2']['nf']
         assert np.allclose(np.array([3,2,1,0]), nids)
         assert np.allclose(np.array([[0.1/1.7],[0.3/1.7],[0.2/1.7],[-1.1/1.7]]),
                            feats)
-
-def create_multiple_edge_feat(tmpdir, file_name, sep='\t'):
-    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
-    node_feat_f.write("node_s{}node_d{}feat1{}feat2{}feat3\n".format(sep,sep,sep,sep))
-    node_feat_f.write("node1{}node_a{}0.2{}0.1{}1.1\n".format(sep,sep,sep,sep))
-    node_feat_f.write("node2{}node_b{}-0.3{}0.3{}1.2\n".format(sep,sep,sep,sep))
-    node_feat_f.write("node3{}node_c{}0.3{}0.2{}-1.2\n".format(sep,sep,sep,sep))
-    node_feat_f.write("node4{}node_d{}-0.2{}-1.1{}0.9\n".format(sep,sep,sep,sep))
-    node_feat_f.close()
 
 def test_edge_feature_process():
     import tempfile
@@ -1272,7 +1312,7 @@ def test_edge_feature_process():
         node_dicts = {}
         result = feat_loader.process(node_dicts)
         assert len(result) == 1
-        snids, dnids, feats = result[None]
+        snids, dnids, feats = result[None]['ef']
         assert np.allclose(np.array([0,1,2,3]), snids)
         assert np.allclose(np.array([4,5,6,7]), dnids)
         assert np.allclose(np.concatenate([np.array([[0.2/1.0],[-0.3/1.0],[0.3/1.0],[-0.2/1.0]]),
@@ -1289,7 +1329,7 @@ def test_edge_feature_process():
                              'node3':1,
                              'node4':0}}
         result = feat_loader.process(node_dicts)
-        snids, dnids, feats = result[None]
+        snids, dnids, feats = result[None]['ef']
         assert np.allclose(np.array([3,2,1,0]), snids)
         assert np.allclose(np.array([4,5,6,7]), dnids)
         assert np.allclose(np.concatenate([np.array([[0.2/1.0],[-0.3/1.0],[0.3/1.0],[-0.2/1.0]]),
@@ -1309,33 +1349,18 @@ def test_edge_feature_process():
                              'node4':0}}
         result = feat_loader.process(node_dicts)
         assert len(result) == 2
-        snids, dnids, feats = result[('n0','r0','n1')]
+        snids, dnids, feats = result[('n0','r0','n1')]['ef']
         assert np.allclose(np.array([3,2,1,0]), snids)
         assert np.allclose(np.array([0,1,2,3]), dnids)
         assert np.allclose(np.concatenate([np.array([[0.2/1.0],[-0.3/1.0],[0.3/1.0],[-0.2/1.0]]),
                                            np.array([[1.2/1.4],[1.0],[1.3/1.4],[0.]])],
                                            axis=1),
                            feats)
-        snids, dnids, feats = result[('n1','r1','n0')]
+        snids, dnids, feats = result[('n1','r1','n0')]['ef']
         assert np.allclose(np.array([4,5,6,7]), snids)
         assert np.allclose(np.array([4,5,6,7]), dnids)
         assert np.allclose(np.array([[1.1],[1.2],[-1.2],[0.9]]),
                            feats)
-
-def create_multiple_label(tmpdir, file_name, sep='\t'):
-    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
-    node_feat_f.write(
-        "node{}label1{}label2{}label3{}label4{}label5{}node_d{}node_d2{}node_d3\n".format(
-        sep,sep,sep,sep,sep,sep,sep,sep))
-    node_feat_f.write("node1{}A{}A{}C{}A,B{}A,C{}node3{}node1{}node4\n".format(
-        sep,sep,sep,sep,sep,sep,sep,sep))
-    node_feat_f.write("node2{}B{}B{}B{}A{}B{}node4{}node2{}node5\n".format(
-        sep,sep,sep,sep,sep,sep,sep,sep))
-    node_feat_f.write("node3{}C{}C{}A{}C,B{}A{}node5{}node1{}node6\n".format(
-        sep,sep,sep,sep,sep,sep,sep,sep))
-    node_feat_f.write("node4{}A{}A{}A{}A,C{}A,B{}node6{}node2{}node7\n".format(
-        sep,sep,sep,sep,sep,sep,sep,sep))
-    node_feat_f.close()
 
 def test_node_label_process():
     import tempfile
@@ -1591,6 +1616,30 @@ def test_edge_process():
         assert np.array_equal(np.array([0,1,2,3]), dnids)
 
 
+def test_build_graph():
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        create_graph_edges(Path(tmpdirname), 'edges.csv')
+        create_edge_labels(Path(tmpdirname), 'edge_labels.csv')
+        create_node_labels(Path(tmpdirname), 'node_labels.csv')
+
+        # homogeneous graph loader
+        node_feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname, 'node_labels.csv'))
+        node_feat_loader.addCategoryFeature([0,1])
+        node_feat_loader.addMultiCategoryFeature([0,2], separator=',')
+        edge_label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname, 'edge_labels.csv'))
+        edge_label_loader.addSet([0,1,2],split_rate=[0.5,0.25,0.25])
+        edge_loader = data.EdgeLoader(os.path.join(tmpdirname, 'edges.csv'))
+        edge_loader.addEdges([0,1])
+
+        graphloader = data.GraphLoader(name='example')
+        graphloader.appendEdge(edge_loader)
+        graphloader.appendLabel(edge_label_loader)
+        graphloader.appendFeature(node_feat_loader)
+        graphloader.process()
+
+
+
 if __name__ == '__main__':
     #test_minigc()
     #test_data_hash()
@@ -1603,26 +1652,28 @@ if __name__ == '__main__':
     #test_embed_word2vec()
 
     #test_parse_lang_feat()
-    test_parse_category_feat()
+    #test_parse_category_feat()
     #test_parse_numerical_feat()
     #test_parse_numerical_multihot_feat()
 
     # test Feature Loader
-    test_node_category_feature_loader()
-    test_node_numerical_feature_loader()
+    #test_node_category_feature_loader()
+    #test_node_numerical_feature_loader()
     #test_node_word2vec_feature_loader()
-    test_edge_numerical_feature_loader()
+    #test_edge_numerical_feature_loader()
     # test Label Loader
-    test_node_label_loader()
-    test_edge_label_loader()
+    #test_node_label_loader()
+    #test_edge_label_loader()
     # test Edge Loader
     test_edge_loader()
 
     # test feature process
-    test_node_feature_process()
-    test_edge_feature_process()
+    #test_node_feature_process()
+    #test_edge_feature_process()
     # test label process
-    test_node_label_process()
-    test_edge_label_process()
+    #test_node_label_process()
+    #test_edge_label_process()
     # test edge process
-    test_edge_process()
+    #test_edge_process()
+
+    test_build_graph()
