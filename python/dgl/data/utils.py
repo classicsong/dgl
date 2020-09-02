@@ -543,7 +543,7 @@ def parse_word2vec_feature(str_feats, languages, verbose=False):
 
     return parse_lang_feat(str_feats, nlp_encoders, verbose)
 
-def parse_category_single_feat(category_inputs, norm=None):
+def parse_category_single_feat(category_inputs, norm=None, classes=None):
     """ Parse categorical features and convert it into onehot encoding.
 
     Each entity of category_inputs should only contain only one category.
@@ -564,6 +564,8 @@ def parse_category_single_feat(category_inputs, norm=None):
             x_{ij} = \frac{x_{ij}}{\sum_{i=0}^N{x_{ij}}}
 
         (3) `row`, sane as None
+    classes : list
+        predefined class list
 
     Note
     ----
@@ -585,8 +587,13 @@ def parse_category_single_feat(category_inputs, norm=None):
 
     """
     from sklearn.preprocessing import LabelBinarizer
-    lb = LabelBinarizer()
-    feat = lb.fit_transform(category_inputs)
+    if classes is not None:
+        lb = LabelBinarizer()
+        lb.fit(classes)
+        feat = lb.transform(category_inputs)
+    else:
+        lb = LabelBinarizer()
+        feat = lb.fit_transform(category_inputs)
 
     # if there are only 2 catebories,
     # fit_transform only create a array of [0, 1, ...]
@@ -601,7 +608,7 @@ def parse_category_single_feat(category_inputs, norm=None):
     else:
         return feat, c_map
 
-def parse_category_multi_feat(category_inputs, norm=None):
+def parse_category_multi_feat(category_inputs, norm=None, classes=None):
     """ Parse categorical features and convert it into multi-hot encoding.
 
     Each entity of category_inputs may contain multiple categorical labels.
@@ -629,6 +636,8 @@ def parse_category_multi_feat(category_inputs, norm=None):
             x_{ij} = \frac{x_{ij}}{\sum_{j=0}^N{x_{ij}}}
 
         Default: None
+    classes : list
+        predefined class list
 
     Note
     ----
@@ -650,8 +659,12 @@ def parse_category_multi_feat(category_inputs, norm=None):
 
     """
     from sklearn.preprocessing import MultiLabelBinarizer
-    mlb = MultiLabelBinarizer()
-    feat = mlb.fit_transform(category_inputs)
+    if classes is not None:
+        mlb = MultiLabelBinarizer(classes=classes)
+        feat = mlb.fit(category_inputs)
+    else:
+        mlb = MultiLabelBinarizer()
+        feat = mlb.fit_transform(category_inputs)
 
     c_map = {i : c for i, c in enumerate(mlb.classes_)}
     if norm == 'col':

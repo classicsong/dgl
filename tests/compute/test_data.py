@@ -411,6 +411,19 @@ def create_multiple_edge_feat(tmpdir, file_name, sep='\t'):
     node_feat_f.write("node4{}node_d{}-0.2{}-1.1{}0.9\n".format(sep,sep,sep,sep))
     node_feat_f.close()
 
+def create_node_feats(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}label1{}label2\n".format(separator,separator))
+    node_feat_f.write("node1{}A{}D,A\n".format(separator,separator))
+    node_feat_f.write("node2{}A{}E,C,D\n".format(separator,separator))
+    node_feat_f.write("node3{}C{}F,A,B\n".format(separator,separator))
+    node_feat_f.write("node4{}A{}G,E\n".format(separator,separator))
+    node_feat_f.write("node5{}A{}D,A\n".format(separator,separator))
+    node_feat_f.write("node6{}C{}E,C,D\n".format(separator,separator))
+    node_feat_f.write("node7{}A{}D,A\n".format(separator,separator))
+    node_feat_f.write("node8{}A{}E,C,D\n".format(separator,separator))
+    node_feat_f.close()
+
 def create_node_labels(tmpdir, file_name, separator='\t'):
     node_feat_f = open(os.path.join(tmpdir, file_name), "w")
     node_feat_f.write("node{}label1{}label2\n".format(separator,separator))
@@ -418,6 +431,20 @@ def create_node_labels(tmpdir, file_name, separator='\t'):
     node_feat_f.write("node2{}A{}E,C,D\n".format(separator,separator))
     node_feat_f.write("node3{}C{}F,A,B\n".format(separator,separator))
     node_feat_f.write("node4{}A{}G,E\n".format(separator,separator))
+    node_feat_f.close()
+
+def create_node_valid_labels(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}label1{}label2\n".format(separator,separator))
+    node_feat_f.write("node5{}A{}D,A\n".format(separator,separator))
+    node_feat_f.write("node6{}C{}E,C,D\n".format(separator,separator))
+    node_feat_f.close()
+
+def create_node_test_labels(tmpdir, file_name, separator='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node{}label1{}label2\n".format(separator,separator))
+    node_feat_f.write("node7{}A{}D,A\n".format(separator,separator))
+    node_feat_f.write("node8{}A{}E,C,D\n".format(separator,separator))
     node_feat_f.close()
 
 def create_edge_labels(tmpdir, file_name, sep='\t'):
@@ -429,6 +456,13 @@ def create_edge_labels(tmpdir, file_name, sep='\t'):
     node_feat_f.write("node4{}node1{}A{}G,E\n".format(sep,sep,sep))
     node_feat_f.close()
 
+def create_train_edge_labels(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_0{}node_1{}label1{}label2\n".format(sep,sep,sep))
+    node_feat_f.write("node4{}node2{}A{}D,A\n".format(sep,sep,sep))
+    node_feat_f.write("node3{}node3{}A{}E,C,D\n".format(sep,sep,sep))
+    node_feat_f.close()
+
 def create_graph_edges(tmpdir, file_name, sep='\t'):
     node_feat_f = open(os.path.join(tmpdir, file_name), "w")
     node_feat_f.write("node_0{}node_1{}rel_1{}rel_2\n".format(sep,sep,sep))
@@ -437,6 +471,20 @@ def create_graph_edges(tmpdir, file_name, sep='\t'):
     node_feat_f.write("node3{}node1{}A{}C\n".format(sep,sep,sep))
     node_feat_f.write("node4{}node3{}A{}B\n".format(sep,sep,sep))
     node_feat_f.write("node4{}node4{}A{}A\n".format(sep,sep,sep))
+    node_feat_f.close()
+
+def create_graph_feat_edges(tmpdir, file_name, sep='\t'):
+    node_feat_f = open(os.path.join(tmpdir, file_name), "w")
+    node_feat_f.write("node_0{}node_1{}feat_1\n".format(sep,sep))
+    node_feat_f.write("node1{}node4{}0.1\n".format(sep,sep))
+    node_feat_f.write("node2{}node3{}0.2\n".format(sep,sep))
+    node_feat_f.write("node3{}node2{}0.3\n".format(sep,sep))
+    node_feat_f.write("node4{}node1{}0.4\n".format(sep,sep))
+    node_feat_f.write("node1{}node2{}0.5\n".format(sep,sep))
+    node_feat_f.write("node2{}node1{}0.6\n".format(sep,sep))
+    node_feat_f.write("node3{}node1{}0.7\n".format(sep,sep))
+    node_feat_f.write("node4{}node3{}0.8\n".format(sep,sep))
+    node_feat_f.write("node4{}node4{}0.9\n".format(sep,sep))
     node_feat_f.close()
 
 def create_multiple_label(tmpdir, file_name, sep='\t'):
@@ -1002,10 +1050,10 @@ def test_node_label_loader():
         assert l_1[1] == ['node1', 'node2', 'node3', 'node4']
         assert l_3[1] == ['node1', 'node3']
         assert l_4[1] == l_1[1]
-        assert np.allclose(l_1[2], l_2[2])
-        assert np.allclose(l_1[2], np.array([[1.,0.,], [1.,0.], [0.,1.],[1.,0.]]))
-        assert np.allclose(l_3[2], np.array([[1.,0.], [0.,1.]]))
-        assert np.allclose(l_4[2], l_1[2])
+        assert l_1[2] == l_2[2]
+        assert l_1[2] == ['A','A','C','A']
+        assert l_3[2] == ['A','C']
+        assert l_4[2] == l_1[2]
         assert l_1[3] == (1., 0., 0.)
         assert l_2[3] == (0., 1., 0.)
         assert l_3[3] == (0., 0., 1.)
@@ -1039,14 +1087,10 @@ def test_node_label_loader():
         assert l_1[1] == ['node1', 'node2', 'node3', 'node4']
         assert l_3[1] == ['node1', 'node3']
         assert l_4[1] == l_1[1]
-        assert np.allclose(l_1[2], l_2[2])
-        assert np.allclose(l_1[2], np.array([[1.,0.,0.,1.,0.,0.,0.],
-                                             [0.,0.,1.,1.,1.,0.,0.],
-                                             [1.,1.,0.,0.,0.,1.,0.],
-                                             [0.,0.,0.,0.,1.,0.,1.]]))
-        assert np.allclose(l_3[2], np.array([[1.,0.,1.,0.],
-                                             [1.,1.,0.,1.]]))
-        assert np.allclose(l_4[2], l_1[2])
+        assert l_1[2] == l_2[2]
+        assert l_1[2] == [['D','A'],['E','C','D'],['F','A','B'],['G','E']]
+        assert l_3[2] == [['D','A'],['F','A','B']]
+        assert l_4[2] == l_1[2]
         assert l_1[3] == (1., 0., 0.)
         assert l_2[3] == (0., 1., 0.)
         assert l_3[3] == (0., 0., 1.)
@@ -1085,10 +1129,10 @@ def test_edge_label_loader():
         assert l_1[2] == ['node4', 'node3', 'node2', 'node1']
         assert l_3[2] == ['node4', 'node2']
         assert l_4[2] == l_1[2]
-        assert np.allclose(l_1[3], l_2[3])
-        assert np.allclose(l_1[3], np.array([[1.,0.,], [1.,0.], [0.,1.],[1.,0.]]))
-        assert np.allclose(l_3[3], np.array([[1.,0.], [0.,1.]]))
-        assert np.allclose(l_4[3], l_1[3])
+        assert l_1[3] == l_2[3]
+        assert l_1[3] == ['A','A','C','A']
+        assert l_3[3] == ['A','C']
+        assert l_4[3] == l_1[3]
         assert l_1[4] == (1., 0., 0.)
         assert l_2[4] == (0., 1., 0.)
         assert l_3[4] == (0., 0., 1.)
@@ -1128,14 +1172,10 @@ def test_edge_label_loader():
         assert l_1[2] == ['node4', 'node3', 'node2', 'node1']
         assert l_3[2] == ['node4', 'node2']
         assert l_4[2] == l_1[2]
-        assert np.allclose(l_1[3], l_2[3])
-        assert np.allclose(l_1[3], np.array([[1.,0.,0.,1.,0.,0.,0.],
-                                             [0.,0.,1.,1.,1.,0.,0.],
-                                             [1.,1.,0.,0.,0.,1.,0.],
-                                             [0.,0.,0.,0.,1.,0.,1.]]))
-        assert np.allclose(l_3[3], np.array([[1.,0.,1.,0.],
-                                             [1.,1.,0.,1.]]))
-        assert np.allclose(l_4[3], l_1[3])
+        assert l_1[3] == l_2[3]
+        assert l_1[3] == [['D','A'],['E','C','D'],['F','A','B'],['G','E']]
+        assert l_3[3] == [['D','A'],['F','A','B']]
+        assert l_4[3] == l_1[3]
         assert l_1[4] == (1., 0., 0.)
         assert l_2[4] == (0., 1., 0.)
         assert l_3[4] == (0., 0., 1.)
@@ -1437,7 +1477,7 @@ def test_node_label_process():
         assert 'n1' in result
         train_nids, train_labels, valid_nids, valid_labels, test_nids, test_labels = result['n1']
         label_map = label_loader.label_map
-        rev_map = {val:key for key,val in label_map.items()}
+        rev_map = {val:key for key,val in label_map['n1'].items()}
         vl_truth = np.zeros((2,3),dtype='int32')
         vl_truth[0][rev_map['A']] = 1
         vl_truth[1][rev_map['A']] = 1
@@ -1542,7 +1582,7 @@ def test_edge_label_process():
             valid_snids, valid_dnids, valid_labels, \
             test_snids, test_dnids, test_labels = result[('n1', 'like', 'n2')]
         label_map = label_loader.label_map
-        rev_map = {val:key for key,val in label_map.items()}
+        rev_map = {val:key for key,val in label_map[('n1', 'like', 'n2')].items()}
         vl_truth = np.zeros((2,3),dtype='int32')
         vl_truth[0][rev_map['A']] = 1
         vl_truth[1][rev_map['A']] = 1
@@ -1624,7 +1664,7 @@ def test_build_graph():
         create_edge_labels(Path(tmpdirname), 'edge_labels.csv')
         create_node_labels(Path(tmpdirname), 'node_labels.csv')
 
-        # homogeneous graph loader
+        # homogeneous graph loader (edge labels)
         node_feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname, 'node_labels.csv'))
         node_feat_loader.addCategoryFeature([0,1])
         node_feat_loader.addMultiCategoryFeature([0,2], separator=',')
@@ -1651,9 +1691,9 @@ def test_build_graph():
         for idx, key in enumerate(['node1', 'node2', 'node3', 'node4']):
             assert id_node_map[None][idx] == key
         label_map = graphloader.label_map
-        assert len(label_map) == 2
-        assert label_map[0] == 'A'
-        assert label_map[1] == 'C'
+        assert len(label_map[None]) == 2
+        assert label_map[None][0] == 'A'
+        assert label_map[None][1] == 'C'
 
         g = graphloader.graph
         assert g.num_edges() == 9
@@ -1664,6 +1704,221 @@ def test_build_graph():
         assert th.nonzero(g.edata['test_mask']).shape[0] == 1
         assert np.allclose(g.ndata['nf'].numpy(),
             np.array([[1,0,1,0,0,1,0,0,0],[1,0,0,0,1,1,1,0,0],[0,1,1,1,0,0,0,1,0],[1,0,0,0,0,0,1,0,1]]))
+
+        # heterogeneous graph loader (edge labels)
+        create_train_edge_labels(Path(tmpdirname), 'edge_train_labels.csv')
+        node_feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname, 'node_labels.csv'))
+        node_feat_loader.addCategoryFeature([0,1], node_type='a')
+        node_feat_loader.addMultiCategoryFeature([0,2], separator=',', node_type='a')
+        edge_label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname, 'edge_labels.csv'))
+        edge_label_loader.addSet([0,1,2],split_rate=[0.5,0.25,0.25], edge_type=('a', 'follow', 'b'))
+        edge_train_label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname, 'edge_train_labels.csv'))
+        edge_train_label_loader.addTrainSet([0,1,2], edge_type=('a', 'follow', 'b'))
+        edge_loader = data.EdgeLoader(os.path.join(tmpdirname, 'edges.csv'))
+        edge_loader.addEdges([0,1], edge_type=('a', 'follow', 'b'))
+        node_feat_loader2 = data.NodeFeatureLoader(os.path.join(tmpdirname, 'node_labels.csv'))
+        node_feat_loader2.addCategoryFeature([0,1], node_type='b')
+        edge_loader2 = data.EdgeLoader(os.path.join(tmpdirname, 'edges.csv'))
+        edge_loader2.addEdges([0,1], edge_type=('b', 'follow', 'a'))
+
+        np.random.seed(0)
+        graphloader = data.GraphLoader(name='example')
+        graphloader.appendEdge(edge_loader)
+        graphloader.appendEdge(edge_loader2)
+        graphloader.appendLabel(edge_label_loader)
+        graphloader.appendLabel(edge_train_label_loader)
+        graphloader.appendFeature(node_feat_loader)
+        graphloader.appendFeature(node_feat_loader2)
+        graphloader.process()
+
+        node_id_map = graphloader.node_2_id
+        assert 'a' in node_id_map
+        assert len(node_id_map['a']) == 4
+        for idx, key in enumerate(['node1', 'node2', 'node3', 'node4']):
+            assert node_id_map['a'][key] == idx
+        id_node_map = graphloader.id_2_node
+        assert 'a' in id_node_map
+        assert len(id_node_map['a']) == 4
+        for idx, key in enumerate(['node1', 'node2', 'node3', 'node4']):
+            assert id_node_map['a'][idx] == key
+        assert 'b' in node_id_map
+        assert len(node_id_map['b']) == 4
+        for idx, key in enumerate(['node2', 'node1', 'node3', 'node4']):
+            assert node_id_map['b'][key] == idx
+        assert 'b' in id_node_map
+        assert len(id_node_map['b']) == 4
+        for idx, key in enumerate(['node2', 'node1', 'node3', 'node4']):
+            assert id_node_map['b'][idx] == key
+
+        label_map = graphloader.label_map
+        assert len(label_map[('a', 'follow', 'b')]) == 2
+        assert label_map[('a', 'follow', 'b')][0] == 'A'
+        assert label_map[('a', 'follow', 'b')][1] == 'C'
+
+        g = graphloader.graph
+        assert g.num_edges(('a', 'follow', 'b')) == 11
+        assert g.num_edges(('b', 'follow', 'a')) == 5
+        assert np.array_equal(g.edges[('a', 'follow', 'b')].data['labels'].long().numpy(),
+            np.array([[-1,-1],[-1,-1],[-1,-1],[-1,-1],[-1,-1],[0,1],[1,0],[1,0],[1,0],[1,0],[1,0]]))
+        assert th.nonzero(g.edges[('a', 'follow', 'b')].data['train_mask']).shape[0] == 4
+        assert th.nonzero(g.edges[('a', 'follow', 'b')].data['valid_mask']).shape[0] == 1
+        assert th.nonzero(g.edges[('a', 'follow', 'b')].data['test_mask']).shape[0] == 1
+        assert np.allclose(g.nodes['a'].data['nf'].numpy(),
+            np.array([[1,0,1,0,0,1,0,0,0],[1,0,0,0,1,1,1,0,0],[0,1,1,1,0,0,0,1,0],[1,0,0,0,0,0,1,0,1]]))
+        assert np.allclose(g.nodes['b'].data['nf'].numpy(),
+            np.array([[1.,0.,],[1.,0.],[0.,1.],[1.,0.]]))
+
+        # edge feat with edge labels
+        create_graph_feat_edges(Path(tmpdirname), 'edges_feats.csv')
+        node_feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname, 'node_labels.csv'))
+        node_feat_loader.addCategoryFeature([0,1], node_type='a')
+        node_feat_loader.addMultiCategoryFeature([0,2], separator=',', node_type='a')
+        edge_label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname, 'edge_labels.csv'))
+        edge_label_loader.addSet([0,1,2],split_rate=[0.5,0.25,0.25], edge_type=('a', 'follow', 'b'))
+        edge_feat_loader = data.EdgeFeatureLoader(os.path.join(tmpdirname, 'edges_feats.csv'))
+        edge_feat_loader.addNumericalFeature([0,1,2], edge_type=('a', 'follow', 'b'))
+        node_feat_loader2 = data.NodeFeatureLoader(os.path.join(tmpdirname, 'node_labels.csv'))
+        node_feat_loader2.addCategoryFeature([0,1], node_type='b')
+        edge_loader2 = data.EdgeLoader(os.path.join(tmpdirname, 'edges.csv'))
+        edge_loader2.addEdges([0,1], edge_type=('b', 'follow', 'a'))
+
+        np.random.seed(0)
+        graphloader = data.GraphLoader(name='example')
+        graphloader.appendEdge(edge_loader2)
+        graphloader.appendLabel(edge_label_loader)
+        graphloader.appendFeature(edge_feat_loader)
+        graphloader.appendFeature(node_feat_loader)
+        graphloader.appendFeature(node_feat_loader2)
+        graphloader.process()
+        node_id_map = graphloader.node_2_id
+        assert 'b' in node_id_map
+        assert len(node_id_map['b']) == 4
+        for idx, key in enumerate(['node1', 'node2', 'node3', 'node4']):
+            assert node_id_map['b'][key] == idx
+        id_node_map = graphloader.id_2_node
+        assert 'b' in id_node_map
+        assert len(id_node_map['b']) == 4
+        for idx, key in enumerate(['node1', 'node2', 'node3', 'node4']):
+            assert id_node_map['b'][idx] == key
+        assert 'a' in node_id_map
+        assert len(node_id_map['a']) == 4
+        for idx, key in enumerate(['node2', 'node1', 'node3', 'node4']):
+            assert node_id_map['a'][key] == idx
+        assert 'a' in id_node_map
+        assert len(id_node_map['a']) == 4
+        for idx, key in enumerate(['node2', 'node1', 'node3', 'node4']):
+            assert id_node_map['a'][idx] == key
+
+        g = graphloader.graph
+        assert g.num_edges(('a', 'follow', 'b')) == 9
+        assert g.num_edges(('b', 'follow', 'a')) == 5
+        assert np.array_equal(g.edges[('a', 'follow', 'b')].data['labels'].long().numpy(),
+            np.array([[1,0],[1,0],[0,1],[1,0],[-1,-1],[-1,-1],[-1,-1],[-1,-1],[-1,-1]]))
+        assert th.nonzero(g.edges[('a', 'follow', 'b')].data['train_mask']).shape[0] == 2
+        assert th.nonzero(g.edges[('a', 'follow', 'b')].data['valid_mask']).shape[0] == 1
+        assert th.nonzero(g.edges[('a', 'follow', 'b')].data['test_mask']).shape[0] == 1
+        assert np.array_equal(g.edges[('a', 'follow', 'b')].data['ef'].numpy(),
+            np.array([[0.1],[0.2],[0.3],[0.4],[0.5],[0.6],[0.7],[0.8],[0.9]]))
+
+        # heterogeneous graph loader (edge no labels)
+        node_feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname, 'node_labels.csv'))
+        node_feat_loader.addCategoryFeature([0,1], node_type='a')
+        node_feat_loader.addMultiCategoryFeature([0,2], separator=',', node_type='a')
+        edge_label_loader = data.EdgeLabelLoader(os.path.join(tmpdirname, 'edge_labels.csv'))
+        edge_label_loader.addSet([0,1],split_rate=[0.5,0.25,0.25], edge_type=('a', 'follow', 'b'))
+        edge_loader = data.EdgeLoader(os.path.join(tmpdirname, 'edges.csv'))
+        edge_loader.addEdges([0,1], edge_type=('a', 'follow', 'b'))
+        node_feat_loader2 = data.NodeFeatureLoader(os.path.join(tmpdirname, 'node_labels.csv'))
+        node_feat_loader2.addCategoryFeature([0,1], node_type='b')
+        edge_loader2 = data.EdgeLoader(os.path.join(tmpdirname, 'edges.csv'))
+        edge_loader2.addEdges([0,1], edge_type=('b', 'follow', 'a'))
+
+        np.random.seed(0)
+        graphloader = data.GraphLoader(name='example')
+        graphloader.appendEdge(edge_loader)
+        graphloader.appendEdge(edge_loader2)
+        graphloader.appendLabel(edge_label_loader)
+        graphloader.appendFeature(node_feat_loader)
+        graphloader.appendFeature(node_feat_loader2)
+        graphloader.process()
+
+        label_map = graphloader.label_map
+        assert len(label_map) == 0
+        g = graphloader.graph
+        assert g.num_edges(('a', 'follow', 'b')) == 9
+        assert g.num_edges(('b', 'follow', 'a')) == 5
+        assert th.nonzero(g.edges[('a', 'follow', 'b')].data['train_mask']).shape[0] == 2
+        assert th.nonzero(g.edges[('a', 'follow', 'b')].data['valid_mask']).shape[0] == 1
+        assert th.nonzero(g.edges[('a', 'follow', 'b')].data['test_mask']).shape[0] == 1
+        assert np.allclose(g.nodes['a'].data['nf'].numpy(),
+            np.array([[1,0,1,0,0,1,0,0,0],[1,0,0,0,1,1,1,0,0],[0,1,1,1,0,0,0,1,0],[1,0,0,0,0,0,1,0,1]]))
+        assert np.allclose(g.nodes['b'].data['nf'].numpy(),
+            np.array([[1.,0.,],[1.,0.],[0.,1.],[1.,0.]]))
+
+        # heterogeneous graph loader (node labels)
+        create_node_valid_labels(Path(tmpdirname), 'node_valid.csv')
+        create_node_test_labels(Path(tmpdirname), 'node_test.csv')
+        create_node_feats(Path(tmpdirname), 'node_feat.csv')
+        node_label_loader = data.NodeLabelLoader(os.path.join(tmpdirname, 'node_labels.csv'))
+        node_label_loader.addTrainSet([0,1], node_type='a')
+        valid_label_loader = data.NodeLabelLoader(os.path.join(tmpdirname, 'node_valid.csv'))
+        valid_label_loader.addValidSet([0,1], node_type='a')
+        test_label_loader = data.NodeLabelLoader(os.path.join(tmpdirname, 'node_test.csv'))
+        test_label_loader.addTestSet([0,1], node_type='a')
+        edge_feat_loader = data.EdgeFeatureLoader(os.path.join(tmpdirname, 'edges_feats.csv'))
+        edge_feat_loader.addNumericalFeature([0,1,2], edge_type=('a', 'in', 'aa'))
+        edge_loader = data.EdgeLoader(os.path.join(tmpdirname, 'edges.csv'))
+        edge_loader.addEdges([0,1], edge_type=('a', 'follow', 'a'))
+        node_feat_loader = data.NodeFeatureLoader(os.path.join(tmpdirname, 'node_feat.csv'))
+        node_feat_loader.addCategoryFeature([0,1], node_type='a')
+        node_feat_loader.addMultiCategoryFeature([0,2], separator=',', node_type='a')
+
+
+        graphloader = data.GraphLoader(name='example')
+        graphloader.appendEdge(edge_loader)
+        graphloader.appendLabel(node_label_loader)
+        graphloader.appendLabel(valid_label_loader)
+        graphloader.appendLabel(test_label_loader)
+        graphloader.appendFeature(edge_feat_loader)
+        graphloader.appendFeature(node_feat_loader)
+        graphloader.process()
+
+        node_id_map = graphloader.node_2_id
+        assert 'a' in node_id_map
+        assert len(node_id_map['a']) == 8
+        for idx, key in enumerate(['node1', 'node2', 'node3', 'node4', 'node5', 'node6', 'node7', 'node8']):
+            assert node_id_map['a'][key] == idx
+        id_node_map = graphloader.id_2_node
+        assert 'a' in id_node_map
+        assert len(id_node_map['a']) == 8
+        for idx, key in enumerate(['node1', 'node2', 'node3', 'node4', 'node5', 'node6', 'node7', 'node8']):
+            assert id_node_map['a'][idx] == key
+        assert 'aa' in node_id_map
+        assert len(node_id_map['aa']) == 4
+        for idx, key in enumerate(['node4', 'node3', 'node2', 'node1']):
+            assert node_id_map['aa'][key] == idx
+        assert 'aa' in id_node_map
+        assert len(id_node_map['aa']) == 4
+        for idx, key in enumerate(['node4', 'node3', 'node2', 'node1']):
+            assert id_node_map['aa'][idx] == key
+
+        label_map = graphloader.label_map
+        assert len(label_map['a']) == 2
+        assert label_map['a'][0] == 'A'
+        assert label_map['a'][1] == 'C'
+        g = graphloader.graph
+        assert g.num_edges(('a', 'in', 'aa')) == 9
+        assert g.num_edges(('a', 'follow', 'a')) == 5
+        assert np.array_equal(g.nodes['a'].data['train_mask'].long().numpy(), np.array([1,1,1,1,0,0,0,0]))
+        assert np.array_equal(g.nodes['a'].data['valid_mask'].long().numpy(), np.array([0,0,0,0,1,1,0,0]))
+        assert np.array_equal(g.nodes['a'].data['test_mask'].long().numpy(), np.array([0,0,0,0,0,0,1,1]))
+        assert np.allclose(g.nodes['a'].data['nf'].numpy(),
+            np.array([[1,0,1,0,0,1,0,0,0],[1,0,0,0,1,1,1,0,0],
+                      [0,1,1,1,0,0,0,1,0],[1,0,0,0,0,0,1,0,1],
+                      [1,0,1,0,0,1,0,0,0],[0,1,0,0,1,1,1,0,0],
+                      [1,0,1,0,0,1,0,0,0],[1,0,0,0,1,1,1,0,0]]))
+        assert np.array_equal(g.edges[('a', 'in', 'aa')].data['ef'].numpy(),
+            np.array([[0.1],[0.2],[0.3],[0.4],[0.5],[0.6],[0.7],[0.8],[0.9]]))
 
 
 if __name__ == '__main__':
@@ -1691,7 +1946,7 @@ if __name__ == '__main__':
     #test_node_label_loader()
     #test_edge_label_loader()
     # test Edge Loader
-    test_edge_loader()
+    #test_edge_loader()
 
     # test feature process
     #test_node_feature_process()

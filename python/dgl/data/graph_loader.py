@@ -518,9 +518,6 @@ class GraphLoader(object):
         if not isinstance(label_loader, NodeLabelLoader) and \
             not isinstance(label_loader, EdgeLabelLoader):
             raise RuntimeError("label loader should be a NodeLabelLoader or EdgeLabelLoader.")
-        assert len(self._label_loader) == 0, \
-            'DGL GraphLoader only support one label loader now.' \
-            'It requires no extra efforts to sync the label mappings'
         self._label_loader.append(label_loader)
 
     def addReverseEdge(self):
@@ -595,10 +592,26 @@ class GraphLoader(object):
                 edge_feat_results.append(edge_feat_result)
 
                 for edge_type, vals in edge_feat_result.items():
+                    feats = {}
+                    snids, dnids, _ = vals[next(iter(vals.keys()))]
+
+                    for feat_name, val in vals.items():
+                        assert val[0].shape[0] == val[1].shape[0], \
+                            'Edges with edge type {} has multiple features, ' \
+                            'But some features do not cover all the edges.' \
+                            'Expect {} edges, but get {} edges with edge feature {}.'.format(
+                                edge_type if edge_type is not None else "",
+                                snids.shape[0], val[0].shape[0], feat_name)
+                        feats[feat_name] = val[2]
+
                     if edge_type in graphs:
-                        snids, dnids, feats = vals
                         new_feats = {}
                         for feat_name, feat in feats:
+                            assert graphs[edge_type][2] is not None, \
+                                'All edges under edge type {} should has features.' \
+                                'Please check if you use EdgeLoader to load edges ' \
+                                'for the same edge type'.format(
+                                    edge_type if edge_type is not None else "")
                             assert feat_name not in graphs[edge_type][2], \
                                 'Can not concatenate edges with features with other edges without features'
                             assert graphs[edge_type][2][feat_name].shape[1:] == feat.shape[1:], \
@@ -610,7 +623,7 @@ class GraphLoader(object):
                                              np.concatenate((graphs[edge_type][1], dnids)),
                                              new_feats)
                     else:
-                        graphs[edge_type] = vals
+                        graphs[edge_type] = (snids, dnids, feats)
             else:
                 # {node_type: {feat_name :(node_ids, node_feats)}}
                 node_feat_result = feat_loader.process(self._node_dict)
@@ -624,18 +637,20 @@ class GraphLoader(object):
                     else:
                         nodes[node_type] = max_nid
 
-        assert len(self._label_loader) == 1, \
-            'DGL GraphLoader should only have one label loader that ' \
-            'it requires no extra efforts to sync the label mappings'
-
-        # TODO(xiangsx): in future we may support multiple LabelLoaders.
         for label_loader in self._label_loader:
-            self._label_map = label_loader.label_map
             if label_loader.node_label is False:
                 # {edge_type: ((train_snids, train_dnids, train_labels,
                 #               valid_snids, valid_dnids, valid_labels,
                 #               test_snids, test_dnids, test_labels)}
-                edge_label_result = label_loader.process(self._node_dict)
+                if self._label_map is None:
+                    edge_label_result = label_loader.process(self._node_dict)
+                    self._label_map = label_loader.label_map
+                else:
+                    edge_label_result = label_loader.process(self._node_dict,
+                                                             label_map=self._label_map)
+                    for idx, label in self._label_map.items():
+                        assert label == label_loader.label_map[idx], \
+                            'All label files should have the same label set'
                 edge_label_results.append(edge_label_result)
 
                 for edge_type, vals in edge_label_result.items():
@@ -678,17 +693,25 @@ class GraphLoader(object):
                 # {node_type: (train_nids, train_labels,
                 #              valid_nids, valid_labels,
                 #              test_nids, test_labels)}
-                node_label_result = label_loader.process(self._node_dict)
+                if self._label_map is None:
+                    node_label_result = label_loader.process(self._node_dict)
+                    self._label_map = label_loader.label_map
+                else:
+                    node_label_result = label_loader.process(self._node_dict,
+                                                             label_map=self._label_map)
+                    for idx, label in self._label_map.items():
+                        assert label == label_loader.label_map[idx], \
+                            'All label files should have the same label set'
                 node_label_results.append(node_label_result)
                 for node_type, vals in node_label_result.items():
                     train_nids, _, valid_nids, _, test_nids, _ = vals
                     max_nid = 0
                     if train_nids is not None:
-                        max_nid = max(int(np.max(train_nids), max_nid))
+                        max_nid = max(int(np.max(train_nids))+1, max_nid)
                     if valid_nids is not None:
-                        max_nid = max(int(np.max(valid_nids), max_nid))
+                        max_nid = max(int(np.max(valid_nids))+1, max_nid)
                     if test_nids is not None:
-                        max_nid = max(int(np.max(test_nids), max_nid))
+                        max_nid = max(int(np.max(test_nids))+1, max_nid)
 
                     if node_type in nodes:
                         nodes[node_type] = max(nodes[node_type], max_nid)
@@ -705,7 +728,19 @@ class GraphLoader(object):
             assert None not in nodes, \
                 'With heterogeneous graph, all nodes should have node type'
             graph_edges = {key: (val[0], val[1]) for key, val in graphs.items()}
-            g = dgl.heterograph(graph_edges, num_nodes=nodes)
+            for etype, (src_nids, dst_nids) in graph_edges.items():
+                src_max_nid = int(np.max(src_nids))+1
+                dst_max_nid = int(np.max(dst_nids))+1
+                if etype[0] in nodes:
+                    nodes[etype[0]] = max(nodes[etype[0]], src_max_nid)
+                else:
+                    nodes[etype[0]] = src_max_nid
+                if etype[2] in nodes:
+                    nodes[etype[2]] = max(nodes[etype[2]], dst_max_nid)
+                else:
+                    nodes[etype[2]] = dst_max_nid
+
+            g = dgl.heterograph(graph_edges, num_nodes_dict=nodes)
             for edge_type, vals in graphs.items():
                 # has edge features
                 if vals[2] is not None:
@@ -810,7 +845,7 @@ class GraphLoader(object):
                                     dtype=train_labels.dtype)
                 labels[eids] = train_labels
             # handle train mask
-            train_mask = th.full((g.num_edges(edge_type),), False)
+            train_mask = th.full((g.num_edges(edge_type),), False, dtype=th.bool)
             train_mask[eids] = True
 
             valid_mask = None
@@ -830,7 +865,7 @@ class GraphLoader(object):
                         'We must have train_labels first then valid_labels'
                     labels[eids] = th.tensor(valid_labels)
                 # handle valid mask
-                valid_mask = th.full((g.num_edges(edge_type),), False)
+                valid_mask = th.full((g.num_edges(edge_type),), False, dtype=th.bool)
                 valid_mask[eids] = True
 
             u, v, eids = g.edge_ids(test_snids,
@@ -848,37 +883,39 @@ class GraphLoader(object):
                     'We must have train_labels first then test_lavbels'
                 labels[eids] = th.tensor(test_labels)
             # handle test mask
-            test_mask = th.full((g.num_edges(edge_type),), False)
+            test_mask = th.full((g.num_edges(edge_type),), False, dtype=th.bool)
             test_mask[eids] = True
 
             # add label and train/valid/test masks into g
             if edge_type is None:
                 assert len(train_edge_labels) == 1, \
                     'Homogeneous graph only supports one type of labels'
-                g.edata['labels'] = labels
+                if labels is not None:
+                    g.edata['labels'] = labels
                 g.edata['train_mask'] = train_mask
                 g.edata['valid_mask'] = valid_mask
                 g.edata['test_mask'] = test_mask
             else: # we have edge type
                 assert 'train_mask' not in g.edges[edge_type].data
-                g.edges[edge_type].data['labels'] = labels
+                if labels is not None:
+                    g.edges[edge_type].data['labels'] = labels
                 g.edges[edge_type].data['train_mask'] = train_mask
                 g.edges[edge_type].data['valid_mask'] = valid_mask
-                g,edges[edge_type].data['test_mask'] = test_mask
+                g.edges[edge_type].data['test_mask'] = test_mask
 
         # node labels
         train_node_labels = {}
         valid_node_labels = {}
         test_node_labels = {}
         for node_labels in node_label_results:
-            for node_type, vals in node_label_result.items():
+            for node_type, vals in node_labels.items():
                 train_nids, train_labels, \
                     valid_nids, valid_labels, \
                     test_nids, test_labels = vals
 
                 # train node labels
-                if node_type in train_node_labels:
-                    if train_nids is not None:
+                if train_nids is not None:
+                    if node_type in train_node_labels:
                         train_node_labels[node_type] = (
                             np.concatenate((train_node_labels[node_type][0], train_nids)),
                             None if train_labels is None else \
@@ -887,8 +924,8 @@ class GraphLoader(object):
                         train_node_labels[node_type] = (train_nids, train_labels)
 
                 # valid node labels
-                if node_type in valid_node_labels:
-                    if valid_nids is not None:
+                if valid_nids is not None:
+                    if node_type in valid_node_labels:
                         valid_node_labels[node_type] = (
                             np.concatenate((valid_node_labels[node_type][0], valid_nids)),
                             None if valid_labels is None else \
@@ -897,8 +934,8 @@ class GraphLoader(object):
                         valid_node_labels[node_type] = (valid_nids, valid_labels)
 
                 # test node labels
-                if node_type in test_node_labels:
-                    if test_nids is not None:
+                if test_nids is not None:
+                    if node_type in test_node_labels:
                         test_node_labels[node_type] = (
                             np.concatenate((test_node_labels[node_type][0], test_nids)),
                             None if test_labels is none else \
@@ -913,10 +950,12 @@ class GraphLoader(object):
         assert len(train_node_labels) == len(test_node_labels), \
             'The training set should cover the same node types as the test set.'
 
-        for node_type, train_val in train_node_labels:
+        for node_type, train_val in train_node_labels.items():
             train_nids, train_labels = train_val
-            valid_nids, valid_labels = valid_node_labels[node_type] \
-                if node_type in valid_node_labels else None, None
+            if node_type in valid_node_labels:
+                valid_nids, valid_labels = valid_node_labels[node_type]
+            else:
+                valid_nids, valid_labels = None, None
             test_nids, test_labels = test_node_labels[node_type]
 
             labels = None
@@ -924,11 +963,11 @@ class GraphLoader(object):
             if train_labels is not None:
                 train_labels = th.tensor(train_labels)
                 labels = th.full((g.num_nodes(node_type), train_labels.shape[1]),
-                                 value=-1,
+                                 -1,
                                  dtype=train_labels.dtype)
                 labels[train_nids] = train_labels
             # handle train mask
-            train_mask = th.full((g.num_nodes(node_type),), False)
+            train_mask = th.full((g.num_nodes(node_type),), False, dtype=th.bool)
             train_mask[train_nids] = True
 
             valid_mask = None
@@ -937,18 +976,18 @@ class GraphLoader(object):
                 if valid_labels is not None:
                     assert labels is not None, \
                         'We must have train_labels first then valid_labels'
-                    labels[valid_nids] = valid_labels
+                    labels[valid_nids] = th.tensor(valid_labels)
                 # handle valid mask
-                valid_mask = th.full((g.num_nodes(node_type),), False)
+                valid_mask = th.full((g.num_nodes(node_type),), False, dtype=th.bool)
                 valid_mask[valid_nids] = True
 
             # handle test label
             if test_labels is not None:
                 assert labels is not None, \
                     'We must have train_labels first then test_labels'
-                labels[test_nids] = test_labels
+                labels[test_nids] = th.tensor(test_labels)
             # handle test mask
-            test_mask = th.full((g.num_nodes(node_type),), False)
+            test_mask = th.full((g.num_nodes(node_type),), False, dtype=th.bool)
             test_mask[test_nids] = True
 
             # add label and train/valid/test masks into g
@@ -1023,7 +1062,7 @@ class GraphLoader(object):
         Return
         ------
         dict:
-            {label id(int) : raw label(string/int)}
+            {type: {label id(int) : raw label(string/int)}}
         """
         return self._label_map
 

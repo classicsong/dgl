@@ -98,15 +98,9 @@ class NodeLabelLoader(object):
         self.eager_mode = eager_mode
         self._encoding = encoding
         self._verbose = verbose
-        self._label_map = None
+        self._label_map = {}
+        self._is_multilabel = None
         self._labels = []
-
-    def _set_label_map(self, label_map):
-        if self._label_map is None:
-            self._label_map = label_map
-        else:
-            for key, id in label_map.items():
-                assert key in self._label_map
 
     def _load_labels(self, cols, multilabel=False, separator=None, rows=None):
         nodes = []
@@ -150,13 +144,9 @@ class NodeLabelLoader(object):
                             labels.append(line[cols[1]])
                         row_idx += 1
                     # else skip this line
-        if multilabel:
-            labels, label_map = parse_category_multi_feat(labels, norm=None)
-        else:
-            labels, label_map = parse_category_single_feat(labels, norm=None)
-        return nodes, labels, label_map
+        return nodes, labels
 
-    def process(self, node_dicts):
+    def process(self, node_dicts, label_map=None):
         """ Preparing nodes and labels for creating dgl graph.
 
         Nodes are converted into consecutive integer ID spaces and
@@ -165,6 +155,8 @@ class NodeLabelLoader(object):
         Params:
         node_dicts: dict of dict
             {node_type: {node_str : node_id}}
+        label_map: dict of dict
+            Label mapping for each node type
 
         Return:
             dict
@@ -173,9 +165,9 @@ class NodeLabelLoader(object):
                          test_nids, test_labels)}
         """
         results = {}
+        total_labels = {}
         for raw_labels in self._labels:
             node_type, nodes, labels, split = raw_labels
-            train_split, valid_split, test_split = split
             if node_type in node_dicts:
                 nid_map = node_dicts[node_type]
             else:
@@ -188,65 +180,102 @@ class NodeLabelLoader(object):
                 nids.append(nid)
             nids = np.asarray(nids, dtype='long')
 
-            # only train
-            if train_split == 1.:
-                train_nids = nids
-                train_labels = labels
-                valid_nids, valid_labels = None, None
-                test_nids, test_labels = None, None
-            # only valid
-            elif valid_split == 1.:
-                train_nids, train_labels = None, None
-                valid_nids = nids
-                valid_labels = labels
-                test_nids, test_labels = None, None
-            # only test
-            elif test_split == 1.:
-                train_nids, train_labels = None, None
-                valid_nids, valid_labels = None, None
-                test_nids = nids
-                test_labels = labels
-            else:
-                num_nids = nids.shape[0]
-                train_idx, valid_idx, test_idx = \
-                    split_idx(num_nids, train_split, valid_split, test_split)
-                train_nids = nids[train_idx]
-                train_labels = labels[train_idx]
-                valid_nids = nids[valid_idx]
-                valid_labels = labels[valid_idx]
-                test_nids = nids[test_idx]
-                test_labels = labels[test_idx]
-
-            # chech if same node_type already exists
-            # if so concatenate the labels
+            # check if same node_type already exists
             if node_type in results:
-                last_train_nids, last_train_labels, \
-                last_valid_nids, last_valid_labels, \
-                last_test_nids, last_test_labels = results[node_type]
-
-                results[node_type] = (train_nids if last_train_nids is None else \
-                                        last_train_nids if train_nids is None else \
-                                            np.concatenate((last_train_nids, train_nids)),
-                                      train_labels if last_train_labels is None else \
-                                        last_train_labels if train_labels is None else \
-                                            np.concatenate((last_train_labels, train_labels)),
-                                      valid_nids if last_valid_nids is None else \
-                                        last_valid_nids if valid_nids is None else \
-                                            np.concatenate((last_valid_nids, valid_nids)),
-                                      valid_labels if last_valid_labels is None else \
-                                        last_valid_labels if valid_labels is None else \
-                                            np.concatenate((last_valid_labels, valid_labels)),
-                                      test_nids if last_test_nids is None else \
-                                        last_test_nids if test_nids is None else \
-                                            np.concatenate((last_test_nids, test_nids)),
-                                      test_labels if last_test_labels is None else \
-                                        last_test_labels if test_labels is None else \
-                                            np.concatenate((last_test_labels, test_labels)))
+                results[node_type].append((nids, split))
+                total_labels[node_type] = total_labels[node_type] + labels
             else:
-                results[node_type] = (train_nids, train_labels,
-                                      valid_nids, valid_labels,
-                                      test_nids, test_labels)
-        return results
+                results[node_type] = []
+                total_labels[node_type] = labels
+                results[node_type].append((nids, split))
+
+        processed_labels = {}
+        label_offs = {}
+        for node_type, labels in total_labels.items():
+            if label_map is not None:
+                classes = [label_map[node_type][idx] for idx in range(len(label_map[node_type]))]
+            else:
+                classes = None
+            if self._is_multilabel:
+                labels, label_map = parse_category_multi_feat(total_labels[node_type],
+                                                              norm=None,
+                                                              classes=classes)
+            else:
+                labels, label_map = parse_category_single_feat(total_labels[node_type],
+                                                               norm=None,
+                                                               classes=classes)
+            self._label_map[node_type] = label_map
+            processed_labels[node_type] = labels
+            label_offs[node_type] = 0
+
+        processed_results = {}
+        for node_type, vals in results.items():
+            for val in vals:
+                nids, split = val
+                train_split, valid_split, test_split = split
+                num_nids = nids.shape[0]
+                offset = label_offs[node_type]
+                labels = processed_labels[node_type][offset:offset+num_nids]
+                label_offs[node_type] = offset+num_nids
+
+                # only train
+                if train_split == 1.:
+                    train_nids = nids
+                    train_labels = labels
+                    valid_nids, valid_labels = None, None
+                    test_nids, test_labels = None, None
+                # only valid
+                elif valid_split == 1.:
+                    train_nids, train_labels = None, None
+                    valid_nids = nids
+                    valid_labels = labels
+                    test_nids, test_labels = None, None
+                # only test
+                elif test_split == 1.:
+                    train_nids, train_labels = None, None
+                    valid_nids, valid_labels = None, None
+                    test_nids = nids
+                    test_labels = labels
+                else:
+                    train_idx, valid_idx, test_idx = \
+                        split_idx(num_nids, train_split, valid_split, test_split)
+                    train_nids = nids[train_idx]
+                    train_labels = labels[train_idx]
+                    valid_nids = nids[valid_idx]
+                    valid_labels = labels[valid_idx]
+                    test_nids = nids[test_idx]
+                    test_labels = labels[test_idx]
+
+                # chech if same node_type already exists
+                # if so concatenate the labels
+                if node_type in processed_results:
+                    last_train_nids, last_train_labels, \
+                    last_valid_nids, last_valid_labels, \
+                    last_test_nids, last_test_labels = processed_results[node_type]
+
+                    processed_results[node_type] = (train_nids if last_train_nids is None else \
+                                                    last_train_nids if train_nids is None else \
+                                                        np.concatenate((last_train_nids, train_nids)),
+                                                    train_labels if last_train_labels is None else \
+                                                        last_train_labels if train_labels is None else \
+                                                            np.concatenate((last_train_labels, train_labels)),
+                                                    valid_nids if last_valid_nids is None else \
+                                                        last_valid_nids if valid_nids is None else \
+                                                            np.concatenate((last_valid_nids, valid_nids)),
+                                                    valid_labels if last_valid_labels is None else \
+                                                        last_valid_labels if valid_labels is None else \
+                                                            np.concatenate((last_valid_labels, valid_labels)),
+                                                    test_nids if last_test_nids is None else \
+                                                        last_test_nids if test_nids is None else \
+                                                            np.concatenate((last_test_nids, test_nids)),
+                                                    test_labels if last_test_labels is None else \
+                                                        last_test_labels if test_labels is None else \
+                                                            np.concatenate((last_test_labels, test_labels)))
+                else:
+                    processed_results[node_type] = (train_nids, train_labels,
+                                                    valid_nids, valid_labels,
+                                                    test_nids, test_labels)
+        return processed_results
 
     def addTrainSet(self, cols, multilabel=False, separator=None, rows=None, node_type=None):
         r"""Add Training Set.
@@ -313,11 +342,16 @@ class NodeLabelLoader(object):
             assert separator is not None, "Multi-class label is supported, "\
                 "but a separator is required to split the labels"
 
-        nodes, labels, label_map = self._load_labels(cols, multilabel, separator, rows)
-        assert len(nodes) == labels.shape[0], \
+        nodes, labels  = self._load_labels(cols, multilabel, separator, rows)
+        assert len(nodes) == len(labels), \
             'Train nodes shape {} and labels shape {} mismatch'.format(len(nodes),
-                                                                       labels.shape[0])
-        self._set_label_map(label_map)
+                                                                       len(labels))
+        if self._is_multilabel is not None:
+            assert self._is_multilabel == multilabel, \
+                'For a single label loader, it can be multi-label or single-label ' \
+                'but it can not be both'
+        else:
+            self._is_multilabel = multilabel
         self._labels.append((node_type, nodes, labels, (1., 0., 0.)))
 
     def addValidSet(self, cols, multilabel=False, separator=None, rows=None, node_type=None):
@@ -385,11 +419,14 @@ class NodeLabelLoader(object):
             assert separator is not None, "Multi-class label is supported, "\
                 "but a separator is required to split the labels"
 
-        nodes, labels, label_map = self._load_labels(cols, multilabel, separator, rows)
-        assert len(nodes) == labels.shape[0], \
+        nodes, labels = self._load_labels(cols, multilabel, separator, rows)
+        assert len(nodes) == len(labels), \
             'Valid nodes shape {} and labels shape {} mismatch'.format(len(nodes),
-                                                                       labels.shape[0])
-        self._set_label_map(label_map)
+                                                                       len(labels))
+        assert self._is_multilabel is None or self._is_multilabel == multilabel, \
+                'For a single label loader, it can be multi-label or single-label ' \
+                'but it can not be both'
+        self._is_multilabel = multilabel
         self._labels.append((node_type, nodes, labels, (0., 1., 0.)))
 
     def addTestSet(self, cols, multilabel=False, separator=None, rows=None, node_type=None):
@@ -457,11 +494,14 @@ class NodeLabelLoader(object):
             assert separator is not None, "Multi-class label is supported, "\
                 "but a separator is required to split the labels"
 
-        nodes, labels, label_map = self._load_labels(cols, multilabel, separator, rows)
-        assert len(nodes) == labels.shape[0], \
+        nodes, labels = self._load_labels(cols, multilabel, separator, rows)
+        assert len(nodes) == len(labels), \
             'Test nodes shape {} and labels shape {} mismatch'.format(len(nodes),
-                                                                      labels.shape[0])
-        self._set_label_map(label_map)
+                                                                      len(labels))
+        assert self._is_multilabel is None or self._is_multilabel == multilabel, \
+                'For a single label loader, it can be multi-label or single-label ' \
+                'but it can not be both'
+        self._is_multilabel = multilabel
         self._labels.append((node_type, nodes, labels, (0., 0., 1.)))
 
     def addSet(self, cols, split_rate, multilabel=False, separator=None, rows=None, node_type=None):
@@ -540,11 +580,14 @@ class NodeLabelLoader(object):
         if split_rate[0] + split_rate[1] + split_rate[2] != 1.:
             raise RuntimeError("The sum of split rates should be 1.")
 
-        nodes, labels, label_map = self._load_labels(cols, multilabel, separator, rows)
-        assert len(nodes) == labels.shape[0], \
+        nodes, labels = self._load_labels(cols, multilabel, separator, rows)
+        assert len(nodes) == len(labels), \
             'nodes shape {} and labels shape {} mismatch'.format(len(nodes),
-                                                                 labels.shape[0])
-        self._set_label_map(label_map)
+                                                                 len(labels))
+        assert self._is_multilabel is None or self._is_multilabel == multilabel, \
+                'For a single label loader, it can be multi-label or single-label ' \
+                'but it can not be both'
+        self._is_multilabel = multilabel
         self._labels.append((node_type,
                              nodes,
                              labels,
@@ -559,6 +602,11 @@ class NodeLabelLoader(object):
     @property
     def label_map(self):
         """ Get the label map
+
+        Return
+        ------
+            dict:
+                {node_type: {id: label}}
         """
         return self._label_map
 
@@ -637,15 +685,10 @@ class EdgeLabelLoader(object):
         self._eager_mode = eager_mode
         self._encoding = encoding
         self._verbose = verbose
-        self._label_map = None
+        self._label_map = {}
         self._labels = []
-
-    def _set_label_map(self, label_map):
-        if self._label_map is None:
-            self._label_map = label_map
-        else:
-            for key, id in label_map.items():
-                assert key in self._label_map
+        self._is_multilabel = None
+        self._has_label = None
 
     def _load_labels(self, cols, multilabel=False, separator=None, rows=None):
         src_nodes = []
@@ -695,17 +738,9 @@ class EdgeLabelLoader(object):
                                 labels.append(line[cols[2]])
                         row_idx += 1
                     # else skip this line
-        if multilabel:
-            labels, label_map = parse_category_multi_feat(labels, norm=None)
-        else:
-            if len(cols) == 3:
-                labels, label_map = parse_category_single_feat(labels, norm=None)
-            else:
-                labels = None
-                label_map = None
-        return src_nodes, dst_nodes, labels, label_map
+        return src_nodes, dst_nodes, labels
 
-    def process(self, node_dicts):
+    def process(self, node_dicts, label_map=None):
         """ Preparing edges and labels for creating dgl graph.
 
         Src nodes and dst nodes are converted into consecutive integer ID spaces and
@@ -714,6 +749,8 @@ class EdgeLabelLoader(object):
         Params:
         node_dicts: dict of dict
             {node_type: {node_str : node_id}}
+        label_map: dict of dict
+            Label mapping for each edge type
 
         Return:
             dict
@@ -722,6 +759,7 @@ class EdgeLabelLoader(object):
                           test_snids, test_dnids, test_labels)}
         """
         results = {}
+        total_labels = {}
         for raw_labels in self._labels:
             edge_type, src_nodes, dst_nodes, labels, split = raw_labels
             train_split, valid_split, test_split = split
@@ -755,83 +793,121 @@ class EdgeLabelLoader(object):
             snids = np.asarray(snids, dtype='long')
             dnids = np.asarray(dnids, dtype='long')
 
-            # only train
-            if train_split == 1.:
-                train_snids = snids
-                train_dnids = dnids
-                train_labels = labels
-                valid_snids, valid_dnids, valid_labels = None, None, None
-                test_snids, test_dnids, test_labels = None, None, None
-            # only valid
-            elif valid_split == 1.:
-                train_snids, train_dnids, train_labels = None, None, None
-                valid_snids = snids
-                valid_dnids = dnids
-                valid_labels = labels
-                test_snids, test_dnids, test_labels = None, None, None
-            # only test
-            elif test_split == 1.:
-                train_snids, train_dnids, train_labels = None, None, None
-                valid_snids, valid_dnids, valid_labels = None, None, None
-                test_snids = snids
-                test_dnids = dnids
-                test_labels = labels
-            else:
-                num_nids = snids.shape[0]
-                train_idx, valid_idx, test_idx = \
-                    split_idx(num_nids, train_split, valid_split, test_split)
-                train_snids = snids[train_idx]
-                train_dnids = dnids[train_idx]
-                valid_snids = snids[valid_idx]
-                valid_dnids = dnids[valid_idx]
-                test_snids = snids[test_idx]
-                test_dnids = dnids[test_idx]
-                if len(labels) > 0:
-                    train_labels = labels[train_idx]
-                    valid_labels = labels[valid_idx]
-                    test_labels = labels[test_idx]
-                else:
-                    train_labels, valid_labels, test_labels = None, None, None
-
-            # chech if same edge_type already exists
-            # if so concatenate the labels
+            # check if same edge_type already exists
             if edge_type in results:
-                last_train_snids, last_train_dnids, last_train_labels, \
-                last_valid_snids, last_valid_dnids, last_valid_labels, \
-                last_test_snids, last_test_dnids, last_test_labels = results[edge_type]
-
-                results[edge_type] = (train_snids if last_train_snids is None else \
-                                        last_train_snids if train_snids is None else \
-                                            np.concatenate((last_train_snids, train_snids)),
-                                      train_dnids if last_train_dnids is None else \
-                                        last_train_dnids if train_dnids is None else \
-                                            np.concatenate((last_train_dnids, train_dnids)),
-                                      train_labels if last_train_labels is None else \
-                                        last_train_labels if train_labels is None else \
-                                            np.concatenate((last_train_labels, train_labels)),
-                                      valid_snids if last_valid_snids is None else \
-                                        last_valid_snids if valid_snids is None else \
-                                            np.concatenate((last_valid_snids, valid_snids)),
-                                      valid_dnids if last_valid_dnids is None else \
-                                        last_valid_dnids if valid_dnids is None else \
-                                            np.concatenate((last_valid_dnids, valid_dnids)),
-                                      valid_labels if last_valid_labels is None else \
-                                        last_valid_labels if valid_labels is None else \
-                                        np.concatenate((last_valid_labels, valid_labels)),
-                                      test_snids if last_test_snids is None else \
-                                        last_test_snids if test_snids is None else \
-                                            np.concatenate((last_test_snids, test_snids)),
-                                      test_dnids if last_test_dnids is None else \
-                                        last_test_dnids if test_dnids is None else \
-                                            np.concatenate((last_test_dnids, test_dnids)),
-                                      test_labels if last_test_labels is None else \
-                                        last_test_labels if test_labels is None else \
-                                             np.concatenate((last_test_labels, test_labels)))
+                results[edge_type].append((snids, dnids, split))
+                total_labels[edge_type] = total_labels[edge_type] + labels
             else:
-                results[edge_type] = (train_snids, train_dnids, train_labels,
-                                      valid_snids, valid_dnids, valid_labels,
-                                      test_snids, test_dnids, test_labels)
-        return results
+                results[edge_type] = []
+                total_labels[edge_type] = labels
+                results[edge_type].append((snids, dnids, split))
+
+        processed_labels = {}
+        label_offs = {}
+        for edge_type, labels in total_labels.items():
+            if self._has_label:
+                if label_map is not None:
+                    classes = [label_map[edge_type][idx] for idx in range(len(label_map[edge_type]))]
+                else:
+                    classes = None
+                if self._is_multilabel:
+                    labels, label_map = parse_category_multi_feat(labels, norm=None, classes=classes)
+                else:
+                    labels, label_map = parse_category_single_feat(labels, norm=None, classes=classes)
+                self._label_map[edge_type] = label_map
+            else:
+                labels = None
+            processed_labels[edge_type] = labels
+            label_offs[edge_type] = 0
+
+        processed_results = {}
+        for edge_type, vals in results.items():
+            for val in vals:
+                snids, dnids, split = val
+                train_split, valid_split, test_split = split
+                num_edges = snids.shape[0]
+                offset = label_offs[edge_type]
+                labels = None if processed_labels[edge_type] is None \
+                    else processed_labels[edge_type][offset:offset+num_edges]
+                label_offs[edge_type] = offset+num_edges
+
+                # only train
+                if train_split == 1.:
+                    train_snids = snids
+                    train_dnids = dnids
+                    train_labels = labels
+                    valid_snids, valid_dnids, valid_labels = None, None, None
+                    test_snids, test_dnids, test_labels = None, None, None
+                # only valid
+                elif valid_split == 1.:
+                    train_snids, train_dnids, train_labels = None, None, None
+                    valid_snids = snids
+                    valid_dnids = dnids
+                    valid_labels = labels
+                    test_snids, test_dnids, test_labels = None, None, None
+                # only test
+                elif test_split == 1.:
+                    train_snids, train_dnids, train_labels = None, None, None
+                    valid_snids, valid_dnids, valid_labels = None, None, None
+                    test_snids = snids
+                    test_dnids = dnids
+                    test_labels = labels
+                else:
+                    num_nids = snids.shape[0]
+                    train_idx, valid_idx, test_idx = \
+                        split_idx(num_nids, train_split, valid_split, test_split)
+                    train_snids = snids[train_idx]
+                    train_dnids = dnids[train_idx]
+                    valid_snids = snids[valid_idx]
+                    valid_dnids = dnids[valid_idx]
+                    test_snids = snids[test_idx]
+                    test_dnids = dnids[test_idx]
+                    if labels is not None:
+                        train_labels = labels[train_idx]
+                        valid_labels = labels[valid_idx]
+                        test_labels = labels[test_idx]
+                    else:
+                        train_labels, valid_labels, test_labels = None, None, None
+
+                # chech if same edge_type already exists
+                # if so concatenate the labels
+                if edge_type in processed_results:
+                    last_train_snids, last_train_dnids, last_train_labels, \
+                    last_valid_snids, last_valid_dnids, last_valid_labels, \
+                    last_test_snids, last_test_dnids, last_test_labels = processed_results[edge_type]
+
+                    processed_results[edge_type] = (train_snids if last_train_snids is None else \
+                                                    last_train_snids if train_snids is None else \
+                                                        np.concatenate((last_train_snids, train_snids)),
+                                                    train_dnids if last_train_dnids is None else \
+                                                        last_train_dnids if train_dnids is None else \
+                                                            np.concatenate((last_train_dnids, train_dnids)),
+                                                    train_labels if last_train_labels is None else \
+                                                        last_train_labels if train_labels is None else \
+                                                            np.concatenate((last_train_labels, train_labels)),
+                                                    valid_snids if last_valid_snids is None else \
+                                                        last_valid_snids if valid_snids is None else \
+                                                            np.concatenate((last_valid_snids, valid_snids)),
+                                                    valid_dnids if last_valid_dnids is None else \
+                                                        last_valid_dnids if valid_dnids is None else \
+                                                            np.concatenate((last_valid_dnids, valid_dnids)),
+                                                    valid_labels if last_valid_labels is None else \
+                                                        last_valid_labels if valid_labels is None else \
+                                                        np.concatenate((last_valid_labels, valid_labels)),
+                                                    test_snids if last_test_snids is None else \
+                                                        last_test_snids if test_snids is None else \
+                                                            np.concatenate((last_test_snids, test_snids)),
+                                                    test_dnids if last_test_dnids is None else \
+                                                        last_test_dnids if test_dnids is None else \
+                                                            np.concatenate((last_test_dnids, test_dnids)),
+                                                    test_labels if last_test_labels is None else \
+                                                        last_test_labels if test_labels is None else \
+                                                            np.concatenate((last_test_labels, test_labels)))
+                else:
+                    processed_results[edge_type] = (train_snids, train_dnids, train_labels,
+                                                    valid_snids, valid_dnids, valid_labels,
+                                                    test_snids, test_dnids, test_labels)
+        return processed_results
 
     def addTrainSet(self, cols, multilabel=False, separator=None, rows=None, edge_type=None):
         r"""Add Training Set.
@@ -917,13 +993,26 @@ class EdgeLabelLoader(object):
             assert separator is not None, "Multi-class label is supported, "\
                 "but a separator is required to split the labels"
 
-        src_nodes, dst_nodes, labels, label_map = \
+        src_nodes, dst_nodes, labels = \
             self._load_labels(cols, multilabel, separator, rows)
         if len(cols) == 3:
-            assert len(src_nodes) == labels.shape[0], \
+            assert len(src_nodes) == len(labels), \
                 'Train nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
-                                                                        labels.shape[0])
-        self._set_label_map(label_map)
+                                                                           len(labels))
+            assert self._has_label is None or self._has_label is True, \
+                    'For a single edge label loader, it can be has-label or no-label ' \
+                    'but it can not be both'
+            self._has_label = True
+        else:
+            assert self._has_label is None or self._has_label is False, \
+                'For a single edge label loader, it can be has-label or no-label ' \
+                'but it can not be both'
+            self._has_label = False
+
+        assert self._is_multilabel is None or self._is_multilabel == multilabel, \
+                'For a single label loader, it can be multi-label or single-label ' \
+                'but it can not be both'
+        self._is_multilabel = multilabel
         self._labels.append((edge_type,
                              src_nodes,
                              dst_nodes,
@@ -1014,13 +1103,26 @@ class EdgeLabelLoader(object):
             assert separator is not None, "Multi-class label is supported, "\
                 "but a separator is required to split the labels"
 
-        src_nodes, dst_nodes, labels, label_map = \
+        src_nodes, dst_nodes, labels = \
             self._load_labels(cols, multilabel, separator, rows)
         if len(cols) == 3:
-            assert len(src_nodes) == labels.shape[0], \
+            assert len(src_nodes) == len(labels), \
                 'Valid nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
-                                                                        labels.shape[0])
-        self._set_label_map(label_map)
+                                                                           len(labels))
+            assert self._has_label is None or self._has_label is True, \
+                    'For a single edge label loader, it can be has-label or no-label ' \
+                    'but it can not be both'
+            self._has_label = True
+        else:
+            assert self._has_label is None or self._has_label is False, \
+                'For a single edge label loader, it can be has-label or no-label ' \
+                'but it can not be both'
+            self._has_label = False
+
+        assert self._is_multilabel is None or self._is_multilabel == multilabel, \
+                'For a single label loader, it can be multi-label or single-label ' \
+                'but it can not be both'
+        self._is_multilabel = multilabel
         self._labels.append((edge_type,
                              src_nodes,
                              dst_nodes,
@@ -1110,13 +1212,26 @@ class EdgeLabelLoader(object):
             assert separator is not None, "Multi-class label is supported, "\
                 "but a separator is required to split the labels"
 
-        src_nodes, dst_nodes, labels, label_map = \
+        src_nodes, dst_nodes, labels = \
             self._load_labels(cols, multilabel, separator, rows)
         if len(cols) == 3:
-            assert len(src_nodes) == labels.shape[0], \
+            assert len(src_nodes) == len(labels), \
                 'Test nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
-                                                                        labels.shape[0])
-        self._set_label_map(label_map)
+                                                                          len(labels))
+            assert self._has_label is None or self._has_label is True, \
+                    'For a single edge label loader, it can be has-label or no-label ' \
+                    'but it can not be both'
+            self._has_label = True
+        else:
+            assert self._has_label is None or self._has_label is False, \
+                'For a single edge label loader, it can be has-label or no-label ' \
+                'but it can not be both'
+            self._has_label = False
+
+        assert self._is_multilabel is None or self._is_multilabel == multilabel, \
+                'For a single label loader, it can be multi-label or single-label ' \
+                'but it can not be both'
+        self._is_multilabel = multilabel
         self._labels.append((edge_type,
                              src_nodes,
                              dst_nodes,
@@ -1218,13 +1333,26 @@ class EdgeLabelLoader(object):
         if split_rate[0] + split_rate[1] + split_rate[2] != 1.:
             raise RuntimeError("The sum of split rates should be 1.")
 
-        src_nodes, dst_nodes, labels, label_map = \
+        src_nodes, dst_nodes, labels = \
             self._load_labels(cols, multilabel, separator, rows)
         if len(cols) == 3:
-            assert len(src_nodes) == labels.shape[0], \
+            assert len(src_nodes) == len(labels), \
                 'nodes shape {} and labels shape {} mismatch'.format(len(src_nodes),
-                                                                    labels.shape[0])
-        self._set_label_map(label_map)
+                                                                     len(labels))
+            assert self._has_label is None or self._has_label is True, \
+                    'For a single edge label loader, it can be has-label or no-label ' \
+                    'but it can not be both'
+            self._has_label = True
+        else:
+            assert self._has_label is None or self._has_label is False, \
+                'For a single edge label loader, it can be has-label or no-label ' \
+                'but it can not be both'
+            self._has_label = False
+
+        assert self._is_multilabel is None or self._is_multilabel == multilabel, \
+                'For a single label loader, it can be multi-label or single-label ' \
+                'but it can not be both'
+        self._is_multilabel = multilabel
         self._labels.append((edge_type,
                              src_nodes,
                              dst_nodes,
@@ -1240,5 +1368,10 @@ class EdgeLabelLoader(object):
     @property
     def label_map(self):
         """ Get the label map
+
+        Return
+        ------
+            dict:
+                {edge_type: {id: label}}
         """
         return self._label_map
