@@ -744,8 +744,8 @@ class GraphLoader(object):
                     test_snids, test_dnids, test_labels = vals
 
                 # train edge labels
-                if edge_type in train_edge_labels:
-                    if train_snids is not None:
+                if train_snids is not None:
+                    if edge_type in train_edge_labels:
                         train_edge_labels[edge_type] = (
                             np.concatenate((train_edge_labels[edge_type][0], train_snids)),
                             np.concatenate((train_edge_labels[edge_type][1], train_dnids)),
@@ -755,8 +755,8 @@ class GraphLoader(object):
                         train_edge_labels[edge_type] = (train_snids, train_dnids, train_labels)
 
                 # valid edge labels
-                if edge_type in valid_edge_labels:
-                    if valid_snids is not None:
+                if valid_snids is not None:
+                    if edge_type in valid_edge_labels:
                         valid_edge_labels[edge_type] = (
                             np.concatenate((valid_edge_labels[edge_type][0], valid_snids)),
                             np.concatenate((valid_edge_labels[edge_type][1], valid_dnids)),
@@ -766,8 +766,8 @@ class GraphLoader(object):
                         valid_edge_labels[edge_type] = (valid_snids, valid_dnids, valid_labels)
 
                 # test edge labels
-                if edge_type in test_edge_labels:
-                    if test_snids is not None:
+                if test_snids is not None:
+                    if edge_type in test_edge_labels:
                         test_edge_labels[edge_type] = (
                             np.concatenate((test_edge_labels[edge_type][0], test_snids)),
                             np.concatenate((test_edge_labels[edge_type][1], test_dnids)),
@@ -783,11 +783,12 @@ class GraphLoader(object):
         assert len(train_edge_labels) == len(test_edge_labels), \
             'The training set should cover the same edge types as the test set.'
 
-        for edge_type, train_val in train_edge_labels:
+        for edge_type, train_val in train_edge_labels.items():
             train_snids, train_dnids, train_labels = train_val
-            valid_snids, valid_dnids, valid_labels = \
-                valid_edge_labels[edge_type] if edge_type in valid_edge_labels \
-                    else None, None, None
+            if edge_type in valid_edge_labels:
+                valid_snids, valid_dnids, valid_labels = valid_edge_labels[edge_type]
+            else:
+                valid_snids, valid_dnids, valid_labels = None, None, None
             assert edge_type in test_edge_labels
             test_snids, test_dnids, test_labels = test_edge_labels[edge_type]
 
@@ -798,9 +799,14 @@ class GraphLoader(object):
             labels = None
             # handle train label
             if train_labels is not None:
+                assert train_snids.shape[0] == eids.shape[0], \
+                    'Under edge type {}, There exists multiple edges' \
+                    'between some (src, dst) pair in the training set.' \
+                    'This is misleading and will not be supported'.format(
+                        edge_type if edge_type is not None else "")
                 train_labels = th.tensor(train_labels)
                 labels = th.full((g.num_edges(edge_type), train_labels.shape[1]),
-                                    value=-1,
+                                    -1,
                                     dtype=train_labels.dtype)
                 labels[eids] = train_labels
             # handle train mask
@@ -813,11 +819,16 @@ class GraphLoader(object):
                                         valid_dnids,
                                         return_uv=True,
                                         etype=edge_type)
+                assert valid_snids.shape[0] == eids.shape[0], \
+                    'Under edge type {}, There exists multiple edges' \
+                    'between some (src, dst) pair in the validation set.' \
+                    'This is misleading and will not be supported'.format(
+                        edge_type if edge_type is not None else "")
                 # handle valid label
                 if valid_labels is not None:
                     assert labels is not None, \
                         'We must have train_labels first then valid_labels'
-                    labels[eids] = valid_labels
+                    labels[eids] = th.tensor(valid_labels)
                 # handle valid mask
                 valid_mask = th.full((g.num_edges(edge_type),), False)
                 valid_mask[eids] = True
@@ -828,9 +839,14 @@ class GraphLoader(object):
                                     etype=edge_type)
             # handle test label
             if test_labels is not None:
+                assert test_snids.shape[0] == eids.shape[0], \
+                    'Under edge type {}, There exists multiple edges' \
+                    'between some (src, dst) pair in the testing set.' \
+                    'This is misleading and will not be supported'.format(
+                        edge_type if edge_type is not None else "")
                 assert labels is not None, \
                     'We must have train_labels first then test_lavbels'
-                labels[eids] = test_labels
+                labels[eids] = th.tensor(test_labels)
             # handle test mask
             test_mask = th.full((g.num_edges(edge_type),), False)
             test_mask[eids] = True
@@ -977,15 +993,28 @@ class GraphLoader(object):
         self._label_map = info['label_map']
 
     @property
-    def node_id_map(self):
+    def node_2_id(self):
+        """ Return mappings from raw node id/name to internal node id
+
+        Return
+        ------
+        dict of dict:
+            {node_type : {raw node id(string/int): dgl_id}}
+        """
+        return self._node_dict
+
+    @property
+    def id_2_node(self):
         """ Return mappings from internal node id to raw node id/name
 
         Return
         ------
         dict of dict:
-            [node_type →  dict of [graph id(int) → raw node id(string/int)]
+            {node_type : {raw node id(string/int): dgl_id}}
         """
-        return self._node_dict
+        return {node_type : {val:key for key, val in node_maps.items()} \
+            for node_type, node_maps in self._node_dict.items()}
+
 
     @property
     def label_map(self):
@@ -994,7 +1023,7 @@ class GraphLoader(object):
         Return
         ------
         dict:
-            dict of [label id(int) → raw label(string/int)]
+            {label id(int) : raw label(string/int)}
         """
         return self._label_map
 

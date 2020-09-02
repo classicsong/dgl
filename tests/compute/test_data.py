@@ -4,6 +4,7 @@ from pathlib import Path
 import dgl.data as data
 import unittest, pytest
 import numpy as np
+import torch as th
 
 def test_minigc():
     ds = data.MiniGCDataset(16, 10, 20)
@@ -431,10 +432,10 @@ def create_edge_labels(tmpdir, file_name, sep='\t'):
 def create_graph_edges(tmpdir, file_name, sep='\t'):
     node_feat_f = open(os.path.join(tmpdir, file_name), "w")
     node_feat_f.write("node_0{}node_1{}rel_1{}rel_2\n".format(sep,sep,sep))
-    node_feat_f.write("node1{}node4{}A{}C\n".format(sep,sep,sep))
-    node_feat_f.write("node2{}node3{}A{}C\n".format(sep,sep,sep))
-    node_feat_f.write("node3{}node2{}A{}C\n".format(sep,sep,sep))
-    node_feat_f.write("node4{}node1{}A{}B\n".format(sep,sep,sep))
+    node_feat_f.write("node1{}node2{}A{}C\n".format(sep,sep,sep))
+    node_feat_f.write("node2{}node1{}A{}C\n".format(sep,sep,sep))
+    node_feat_f.write("node3{}node1{}A{}C\n".format(sep,sep,sep))
+    node_feat_f.write("node4{}node3{}A{}B\n".format(sep,sep,sep))
     node_feat_f.write("node4{}node4{}A{}A\n".format(sep,sep,sep))
     node_feat_f.close()
 
@@ -1161,8 +1162,8 @@ def test_edge_loader():
         assert e_1[1] == ['node1', 'node2', 'node3', 'node4', 'node4']
         assert e_3[1] == ['node2', 'node3', 'node4', 'node4']
         assert e_1[2] == e_2[2]
-        assert e_1[2] == ['node4', 'node3', 'node2', 'node1', 'node4']
-        assert e_3[2] == ['node3', 'node2', 'node1', 'node4']
+        assert e_1[2] == ['node2', 'node1', 'node1', 'node3', 'node4']
+        assert e_3[2] == ['node1', 'node1', 'node3', 'node4']
 
         edge_loader = data.EdgeLoader(os.path.join(tmpdirname,
                                                    'graphs.csv'))
@@ -1186,8 +1187,8 @@ def test_edge_loader():
         assert e_1[1] == ['node1', 'node2', 'node3', 'node4', 'node4']
         assert e_3[1] == ['node2', 'node3', 'node4', 'node4']
         assert e_1[2] == e_2[2]
-        assert e_1[2] == ['node4', 'node3', 'node2', 'node1', 'node4']
-        assert e_3[2] == ['node3', 'node2', 'node1', 'node4']
+        assert e_1[2] == ['node2', 'node1', 'node1', 'node3', 'node4']
+        assert e_3[2] == ['node1', 'node1', 'node3', 'node4']
 
         edge_loader = data.EdgeLoader(os.path.join(tmpdirname,
                                                    'graphs.csv'))
@@ -1222,8 +1223,8 @@ def test_edge_loader():
         assert e_1[2] == e_4[2]
         assert e_2[2] == e_5[2]
         assert e_3[2] == e_6[2]
-        assert e_1[2] == ['node4', 'node3', 'node2']
-        assert e_2[2] == ['node1']
+        assert e_1[2] == ['node2', 'node1', 'node1']
+        assert e_2[2] == ['node3']
         assert e_3[2] == ['node4']
         e_7 = edge_loader._edges[6]
         e_8 = edge_loader._edges[7]
@@ -1234,8 +1235,8 @@ def test_edge_loader():
         assert e_7[1] == ['node2', 'node3']
         assert e_8[1] == ['node4']
         assert e_9[1] == ['node4']
-        assert e_7[2] == ['node3', 'node2']
-        assert e_8[2] == ['node1']
+        assert e_7[2] == ['node1', 'node1']
+        assert e_8[2] == ['node3']
         assert e_9[2] == ['node4']
 
 def test_node_feature_process():
@@ -1632,12 +1633,37 @@ def test_build_graph():
         edge_loader = data.EdgeLoader(os.path.join(tmpdirname, 'edges.csv'))
         edge_loader.addEdges([0,1])
 
+        np.random.seed(0)
         graphloader = data.GraphLoader(name='example')
         graphloader.appendEdge(edge_loader)
         graphloader.appendLabel(edge_label_loader)
         graphloader.appendFeature(node_feat_loader)
         graphloader.process()
 
+        node_id_map = graphloader.node_2_id
+        assert None in node_id_map
+        assert len(node_id_map[None]) == 4
+        for idx, key in enumerate(['node1', 'node2', 'node3', 'node4']):
+            assert node_id_map[None][key] == idx
+        id_node_map = graphloader.id_2_node
+        assert None in id_node_map
+        assert len(id_node_map[None]) == 4
+        for idx, key in enumerate(['node1', 'node2', 'node3', 'node4']):
+            assert id_node_map[None][idx] == key
+        label_map = graphloader.label_map
+        assert len(label_map) == 2
+        assert label_map[0] == 'A'
+        assert label_map[1] == 'C'
+
+        g = graphloader.graph
+        assert g.num_edges() == 9
+        assert np.array_equal(g.edata['labels'].long().numpy(),
+            np.array([[-1,-1],[-1,-1],[-1,-1],[-1,-1],[-1,-1],[0,1],[1,0],[1,0],[1,0]]))
+        assert th.nonzero(g.edata['train_mask']).shape[0] == 2
+        assert th.nonzero(g.edata['valid_mask']).shape[0] == 1
+        assert th.nonzero(g.edata['test_mask']).shape[0] == 1
+        assert np.allclose(g.ndata['nf'].numpy(),
+            np.array([[1,0,1,0,0,1,0,0,0],[1,0,0,0,1,1,1,0,0],[0,1,1,1,0,0,0,1,0],[1,0,0,0,0,0,1,0,1]]))
 
 
 if __name__ == '__main__':
