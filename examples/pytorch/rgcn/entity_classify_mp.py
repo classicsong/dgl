@@ -218,13 +218,13 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
     # validation sampler
     val_sampler = NeighborSampler(g, target_idx, fanouts)
     val_loader = DataLoader(dataset=val_idx.numpy(),
-                            batch_size=args.batch_size,
+                            batch_size=args.batch_size // 4,
                             collate_fn=val_sampler.sample_blocks,
                             shuffle=False,
                             num_workers=args.num_workers)
 
     # test sampler
-    test_sampler = NeighborSampler(g, target_idx, [None] * args.n_layers)
+    test_sampler = NeighborSampler(g, target_idx, fanouts)
     test_loader = DataLoader(dataset=test_idx.numpy(),
                              batch_size=args.eval_batch_size,
                              collate_fn=test_sampler.sample_blocks,
@@ -319,6 +319,8 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
     print("start training...")
     forward_time = []
     backward_time = []
+    dense_time = []
+    sparse_time = []
 
     train_time = 0
     validation_time = 0
@@ -346,12 +348,16 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
                 emb_optimizer.zero_grad()
 
             loss.backward()
+            t2 = time.time()
             if emb_optimizer is not None:
                 emb_optimizer.step()
+            t3 = time.time()
             optimizer.step()
-            t2 = time.time()
+            t4 = time.time()
 
             forward_time.append(t1 - t0)
+            sparse_time.append(t3 - t2)
+            dense_time.append(t4 - t3)
             backward_time.append(t2 - t1)
             train_acc = th.sum(logits.argmax(dim=1) == labels[seeds]).item() / len(seeds)
             if i % 100 and proc_id == 0:
@@ -430,6 +436,11 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
                                                   np.mean(forward_time[len(forward_time) // 4:])))
     print("{}/{} Mean backward time: {:4f}".format(proc_id, n_gpus,
                                                    np.mean(backward_time[len(backward_time) // 4:])))
+    print("{}/{} Mean dense time: {:4f}".format(proc_id, n_gpus,
+                                                  np.mean(dense_time[len(forward_time) // 4:])))
+    print("{}/{} Mean sparse time: {:4f}".format(proc_id, n_gpus,
+                                                   np.mean(sparse_time[len(backward_time) // 4:])))
+ 
     if proc_id == 0:
         print("Test Accuracy: {:.4f} | Test loss: {:.4f}".format(test_acc, test_loss))
         print("Train {}s, valid {}s, test {}s".format(train_time, validation_time, test_time))
@@ -537,7 +548,8 @@ def main(args, devices):
     g.create_formats_()
 
     n_gpus = len(devices)
-    n_cpus = mp.cpu_count()
+    n_cpus = args.n_cpus
+    #n_cpus = mp.cpu_count()
     # cpu
     if devices[0] == -1:
         run(0, 0, n_cpus, args, ['cpu'],
@@ -630,6 +642,7 @@ def config():
             help='Whether use node features')
     parser.add_argument('--layer-norm', default=False, action='store_true',
             help='Use layer norm')
+    parser.add_argument('--n_cpus', type=int, default=8,help='test')
     parser.set_defaults(validation=True)
     args = parser.parse_args()
     return args
