@@ -317,6 +317,8 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
 
     # training loop
     print("start training...")
+    sample_time = []
+    emb_time = []
     forward_time = []
     backward_time = []
     dense_time = []
@@ -333,13 +335,30 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
         model.train()
         embed_layer.train()
 
+        ts = time.time()
         for i, sample_data in enumerate(loader):
             seeds, blocks = sample_data
+            statistics = {'0':0,'1':0,'2':0,'3':0}
+            edges = 0
+            for block in blocks:
+                n_type = block.srcdata['ntype']
+                loc_0 = n_type == 0
+                loc_1 = n_type == 1
+                loc_2 = n_type == 2
+                loc_3 = n_type == 3
+                statistics['0'] += th.nonzero(loc_0, as_tuple=False).squeeze().shape[0]
+                statistics['1'] += th.nonzero(loc_1, as_tuple=False).squeeze().shape[0]
+                statistics['2'] += th.nonzero(loc_2, as_tuple=False).squeeze().shape[0]
+                statistics['3'] += th.nonzero(loc_3, as_tuple=False).squeeze().shape[0]
+                edges += block.num_edges()
+
+            print('{}:{}  {} | {}'.format(proc_id, i, edges, statistics))
             t0 = time.time()
             feats = embed_layer(blocks[0].srcdata[dgl.NID],
                                 blocks[0].srcdata['ntype'],
                                 blocks[0].srcdata['type_id'],
                                 node_feats)
+            te = time.time()
             logits = model(blocks, feats)
             loss = F.cross_entropy(logits, labels[seeds])
             t1 = time.time()
@@ -355,14 +374,17 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
             optimizer.step()
             t4 = time.time()
 
-            forward_time.append(t1 - t0)
+            sample_time.append(t0 - ts)
+            emb_time.append(te - t0)
+            forward_time.append(t1 - te)
+            backward_time.append(t2 - t1)
             sparse_time.append(t3 - t2)
             dense_time.append(t4 - t3)
-            backward_time.append(t2 - t1)
             train_acc = th.sum(logits.argmax(dim=1) == labels[seeds]).item() / len(seeds)
             if i % 100 and proc_id == 0:
                 print("Train Accuracy: {:.4f} | Train Loss: {:.4f}".
                     format(train_acc, loss.item()))
+            ts = time.time()
         gc.collect()
         print("Epoch {:05d}:{:05d} | Train Forward Time(s) {:.4f} | Backward Time(s) {:.4f}".
             format(epoch, args.n_epochs, forward_time[-1], backward_time[-1]))
@@ -432,6 +454,10 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
             if n_gpus > 1:
                 th.distributed.barrier()
 
+    print("{}/{} Mean sample time: {:4f}".format(proc_id, n_gpus,
+                                                  np.mean(sample_time[len(sample_time) // 4:])))
+    print("{}/{} Mean embedding time: {:4f}".format(proc_id, n_gpus,
+                                                  np.mean(emb_time[len(emb_time) // 4:])))
     print("{}/{} Mean forward time: {:4f}".format(proc_id, n_gpus,
                                                   np.mean(forward_time[len(forward_time) // 4:])))
     print("{}/{} Mean backward time: {:4f}".format(proc_id, n_gpus,
