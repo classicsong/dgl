@@ -195,8 +195,15 @@ def evaluate(model, embed_layer, eval_loader, node_feats):
 
     return eval_logits, eval_seeds
 
+def _compute_acc(logits, labels, multilabel):
+    if multilabel:
+        predicted_labels = th.sigmoid(logits).data > 0.5
+        return th.sum(predicted_labels.cpu() == labels.cpu()).item() / labels.numel()
+    else:
+        return th.sum(logits.argmax(dim=1).cpu() == labels.cpu()).item() / len(labels)
+
 @thread_wrapped_func
-def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
+def run(proc_id, n_gpus, n_cpus, args, multilabel, devices, dataset, split, queue=None):
     dev_id = devices[proc_id] if devices[proc_id] != 'cpu' else -1
     g, node_feats, num_of_ntype, num_classes, num_rels, target_idx, \
         train_idx, val_idx, test_idx, labels = dataset
@@ -315,6 +322,8 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
             embs = list(embed_layer.node_embeds.parameters())
         emb_optimizer = th.optim.SparseAdam(embs, lr=args.sparse_lr) if len(embs) > 0 else None
 
+    loss_func = nn.BCEWithLogitsLoss() if multilabel else nn.CrossEntropyLoss()
+    loss_func.to(dev_id)
     # training loop
     print("start training...")
     forward_time = []
@@ -341,7 +350,7 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
                                 blocks[0].srcdata['type_id'],
                                 node_feats)
             logits = model(blocks, feats)
-            loss = F.cross_entropy(logits, labels[seeds])
+            loss = loss_func(logits, labels[seeds])
             t1 = time.time()
             optimizer.zero_grad()
             if emb_optimizer is not None:
@@ -359,7 +368,7 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
             sparse_time.append(t3 - t2)
             dense_time.append(t4 - t3)
             backward_time.append(t2 - t1)
-            train_acc = th.sum(logits.argmax(dim=1) == labels[seeds]).item() / len(seeds)
+            train_acc = _compute_acc(logits, labels[seeds], multilabel)
             if i % 100 and proc_id == 0:
                 print("Train Accuracy: {:.4f} | Train Loss: {:.4f}".
                     format(train_acc, loss.item()))
@@ -379,10 +388,17 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
                 eval_seeds.append(eval_s)
             eval_logits = th.cat(eval_logits)
             eval_seeds = th.cat(eval_seeds)
-            eval_loss = F.cross_entropy(eval_logits, labels[eval_seeds].cpu()).item()
-            eval_acc = th.sum(eval_logits.argmax(dim=1) == labels[eval_seeds].cpu()).item() / len(eval_seeds)
+            labels = labels[eval_seeds].cpu()
+            if multilabel:
+                results = eval_logits
+                print('{} AUC:', name, skm.roc_auc_score(labels.numpy(), results.numpy()))
+                print('{} APS', name, skm.average_precision_score(labels.numpy(), results.numpy()))
+                return 0,0
+            else:
+                eval_loss = F.cross_entropy(eval_logits, labels[eval_seeds].cpu()).item()
+                eval_acc = th.sum(eval_logits.argmax(dim=1) == labels[eval_seeds].cpu()).item() / len(eval_seeds)
 
-            return eval_loss, eval_acc
+                return eval_loss, eval_acc
 
         vstart = time.time()
         if (queue is not None) or (proc_id == 0):
@@ -392,14 +408,24 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
 
             # gather evaluation result from multiple processes
             if proc_id == 0:
-                val_loss, val_acc = collect_eval() if queue is not None else \
-                    (F.cross_entropy(val_logits, labels[val_seeds].cpu()).item(), \
-                    th.sum(val_logits.argmax(dim=1) == labels[val_seeds].cpu()).item() / len(val_seeds))
+                if queue is not None:
+                    val_loss, val_acc = collect_eval()
+                else:
+                    labels = labels[eval_seeds].cpu()
+                    if multilabel:
+                        results = val_logits
+                        print('{} AUC:', name, skm.roc_auc_score(labels.numpy(), results.numpy()))
+                        print('{} APS', name, skm.average_precision_score(labels.numpy(), results.numpy()))
+                        do_test = True
+                        val_acc = 0
+                        val_loss = 0
+                    else:
+                        val_loss = F.cross_entropy(val_logits, labels[val_seeds].cpu()).item()
+                        val_acc = th.sum(val_logits.argmax(dim=1) == labels[val_seeds].cpu()).item() / len(val_seeds)
 
-                do_test = val_acc > last_val_acc
-                last_val_acc = val_acc
-                print("Validation Accuracy: {:.4f} | Validation loss: {:.4f}".
-                        format(val_acc, val_loss))
+                        do_test = val_acc > last_val_acc
+                        last_val_acc = val_acc
+                print("Validation Accuracy: {:.4f} | Validation loss: {:.4f}".format(val_acc, val_loss))
         if n_gpus > 1:
             th.distributed.barrier()
             if proc_id == 0:
@@ -415,14 +441,28 @@ def run(proc_id, n_gpus, n_cpus, args, devices, dataset, split, queue=None):
             tstart = time.time()
             if (queue is not None) or (proc_id == 0):
                 test_logits, test_seeds = evaluate(model, embed_layer, test_loader, node_feats)
+
                 if queue is not None:
                     queue.put((test_logits, test_seeds))
 
                 # gather evaluation result from multiple processes
                 if proc_id == 0:
-                    test_loss, test_acc = collect_eval() if queue is not None else \
-                        (F.cross_entropy(test_logits, labels[test_seeds].cpu()).item(), \
-                        th.sum(test_logits.argmax(dim=1) == labels[test_seeds].cpu()).item() / len(test_seeds))
+                    if queue is not None:
+                        test_loss, test_acc = collect_eval()
+                    else:
+                        labels = labels[eval_seeds].cpu()
+
+                        if multilabel:
+                            results = test_logits
+                            print('Test {} AUC:', name, skm.roc_auc_score(labels.numpy(), results.numpy()))
+                            print('Test {} APS', name, skm.average_precision_score(labels.numpy(), results.numpy()))
+                            test_acc = 0
+                            test_loss = 0
+                            do_test = True
+                        else:
+                            test_loss = F.cross_entropy(test_logits, labels[test_seeds].cpu()).item()
+                            test_acc = th.sum(test_logits.argmax(dim=1) == labels[test_seeds].cpu()).item() / len(test_seeds)
+
                     print("Test Accuracy: {:.4f} | Test loss: {:.4f}".format(test_acc, test_loss))
                     print()
             tend = time.time()
@@ -459,9 +499,12 @@ def main(args, devices):
     elif args.dataset == 'ogbn-mag':
         dataset = DglNodePropPredDataset(name=args.dataset)
         ogb_dataset = True
+    elif args.dataset == 'oag':
+        oag_dataset = True
     else:
         raise ValueError()
 
+    multilabel = False
     if ogb_dataset is True:
         split_idx = dataset.get_idx_split()
         train_idx = split_idx["train"]['paper']
@@ -487,7 +530,30 @@ def main(args, devices):
         print('Number of train: {}'.format(len(train_idx)))
         print('Number of valid: {}'.format(len(val_idx)))
         print('Number of test: {}'.format(len(test_idx)))
+    elif oag_dataset is True:
+        #g_data = dgl.load_graphs('./oag_max.dgl')
+        g_data = dgl.load_graphs('./oag_max.bin')
+        hg = g_data[0][0]
+        print(hg)
+        print(hg.nodes['paper'].data)
+        train_mask = hg.nodes['paper'].data['train_mask']
+        valid_mask = hg.nodes['paper'].data['val_mask']
+        test_mask = hg.nodes['paper'].data['test_mask']
+        labels = hg.nodes['paper'].data['labels']
+        num_rels = len(hg.canonical_etypes)
+        num_of_ntype = len(hg.ntypes)
+        num_classes = labels.shape[1]
+        multilabel = True
+        category = 'paper'
 
+        train_idx = th.nonzero(train_mask, as_tuple=False).squeeze()
+        val_idx = th.nonzero(valid_mask, as_tuple=False).squeeze()
+        test_idx = th.nonzero(test_mask, as_tuple=False).squeeze()
+        print('Number of relations: {}'.format(num_rels))
+        print('Number of class: {}'.format(num_classes))
+        print('Number of train: {}'.format(len(train_idx)))
+        print('Number of valid: {}'.format(len(val_idx)))
+        print('Number of test: {}'.format(len(test_idx)))
     else:
         # Load from hetero-graph
         hg = dataset[0]
@@ -516,8 +582,8 @@ def main(args, devices):
         if len(hg.nodes[ntype].data) == 0 or args.node_feats is False:
             node_feats.append(hg.number_of_nodes(ntype))
         else:
-            assert len(hg.nodes[ntype].data) == 1
-            feat = hg.nodes[ntype].data.pop('feat')
+            #assert len(hg.nodes[ntype].data) == 1
+            feat = hg.nodes[ntype].data.pop('emb')
             node_feats.append(feat.share_memory_())
 
     # get target category id
@@ -552,12 +618,12 @@ def main(args, devices):
     #n_cpus = mp.cpu_count()
     # cpu
     if devices[0] == -1:
-        run(0, 0, n_cpus, args, ['cpu'],
+        run(0, 0, n_cpus, args, multilabel, ['cpu'],
             (g, node_feats, num_of_ntype, num_classes, num_rels, target_idx,
              train_idx, val_idx, test_idx, labels), None, None)
     # gpu
     elif n_gpus == 1:
-        run(0, n_gpus, n_cpus, args, devices,
+        run(0, n_gpus, n_cpus, args, multilabel, devices,
             (g, node_feats, num_of_ntype, num_classes, num_rels, target_idx,
             train_idx, val_idx, test_idx, labels), None, None)
     # multi gpu
@@ -588,7 +654,7 @@ def main(args, devices):
                                          (proc_id + 1) * tstseeds_per_proc \
                                          if (proc_id + 1) * tstseeds_per_proc < num_test_seeds \
                                          else num_test_seeds]
-            p = mp.Process(target=run, args=(proc_id, n_gpus, n_cpus // n_gpus, args, devices,
+            p = mp.Process(target=run, args=(proc_id, n_gpus, n_cpus // n_gpus, args, multilabel, devices,
                                              (g, node_feats, num_of_ntype, num_classes, num_rels, target_idx,
                                              train_idx, val_idx, test_idx, labels),
                                              (proc_train_seeds, proc_valid_seeds, proc_test_seeds),
